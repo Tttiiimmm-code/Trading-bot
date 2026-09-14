@@ -18,10 +18,20 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from ict_bot.main import _process_closed_bar
+from ict_bot.main import _no_conflicting_position_exists, _process_closed_bar
 from ict_bot.execution.paper import PaperBroker
 from ict_bot.strategy.ict_strategy import ICTStrategy, Side
 from ict_bot.strategy.risk import RiskConfig, RiskManager
+
+
+class _FakeExchange:
+    def __init__(self, positions=None, supports_fetch_positions=True):
+        self._positions = positions or []
+        self.has = {"fetchPositions": supports_fetch_positions}
+        self.id = "fake"
+
+    def fetch_positions(self, symbols):
+        return self._positions
 
 
 def _config(pending_order_expiry_bars: int = 8):
@@ -91,3 +101,23 @@ def test_pending_order_fill_on_an_earlier_gapped_bar_is_not_missed():
     entries = [f for f in broker.fills if f.reason == "entry"]
     assert len(entries) == 1
     assert entries[0].timestamp == bar1_ts
+
+
+def test_no_conflicting_position_exists_true_when_flat():
+    exchange = _FakeExchange(positions=[{"symbol": "BTC/USDT", "contracts": 0.0}])
+    assert _no_conflicting_position_exists(exchange, "BTC/USDT") is True
+
+
+def test_no_conflicting_position_exists_false_when_a_position_is_already_open():
+    """Regression: CCXTBroker only tracks positions in local memory. A
+    process that starts fresh while the exchange already has an open
+    position (from a crash/restart mid-position) must refuse to start,
+    not silently open a second, uncoordinated one on top of it.
+    """
+    exchange = _FakeExchange(positions=[{"symbol": "BTC/USDT", "contracts": 0.001, "side": "long"}])
+    assert _no_conflicting_position_exists(exchange, "BTC/USDT") is False
+
+
+def test_no_conflicting_position_exists_true_when_exchange_cannot_check():
+    exchange = _FakeExchange(supports_fetch_positions=False)
+    assert _no_conflicting_position_exists(exchange, "BTC/USDT") is True

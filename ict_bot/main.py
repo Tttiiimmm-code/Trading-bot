@@ -72,6 +72,41 @@ def cmd_backtest(args: argparse.Namespace) -> None:
             print(f"{key:20s}: {value}")
 
 
+def _no_conflicting_position_exists(exchange, symbol: str) -> bool:
+    """Guard against starting a live run while the exchange already has an
+    open position this process has no local record of.
+
+    CCXTBroker only tracks positions (and their protective SL/TP order
+    ids) in local process memory - it never calls fetch_positions. If a
+    previous run crashed or was restarted while a position was open, a
+    fresh start would see get_open_position() as None, happily open a
+    second, uncoordinated position on top of the existing one, and never
+    be able to detect the first one's stop-loss/take-profit fills at all.
+
+    Returns True if it's safe to proceed (flat, or the exchange doesn't
+    support checking), False if an open position was found and the
+    caller should refuse to start.
+    """
+    if not exchange.has.get("fetchPositions"):
+        logger.warning(
+            "%s does not support fetchPositions; cannot check for a pre-existing open position on startup.",
+            exchange.id,
+        )
+        return True
+
+    positions = exchange.fetch_positions([symbol])
+    if any(abs(p.get("contracts") or 0) > 0 for p in positions):
+        logger.error(
+            "Refusing to start: %s already has an open position on the exchange that this process has no local "
+            "record of (likely a crash or restart while a position was open). Starting fresh would risk opening a "
+            "second, uncoordinated position on top of it and losing track of the first one's stop-loss/take-profit "
+            "entirely. Close or otherwise resolve it manually before running live again.",
+            symbol,
+        )
+        return False
+    return True
+
+
 def _process_closed_bar(
     broker: Broker,
     risk_manager: RiskManager,
@@ -136,6 +171,8 @@ def cmd_live(args: argparse.Namespace) -> None:
     if args.mode == "live":
         if not config.exchange.sandbox:
             logger.warning("LIVE mode with sandbox=false: this will place REAL orders with REAL funds on %s.", config.exchange.id)
+        if not _no_conflicting_position_exists(exchange, symbol):
+            return
         broker = CCXTBroker(exchange, symbol, use_native_sl_tp=config.live.use_native_sl_tp)
     else:
         starting_balance = config.backtest.starting_balance
