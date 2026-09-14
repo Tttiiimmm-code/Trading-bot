@@ -76,3 +76,34 @@ def test_no_signal_on_flat_data():
     df = rows_to_df(df)
     strategy = ICTStrategy()
     assert strategy.generate_signal(df) is None
+
+
+def test_signal_entry_stays_inside_the_ote_band_when_required():
+    """Regression: entry used to be hardcoded to ob.midpoint. The gating
+    check only proves the OB (or OB/FVG) zone *overlaps* the OTE band, not
+    that ob.midpoint itself falls inside it - an off-center overlap could
+    produce a signal whose entry sits outside the very OTE retracement
+    require_ote=True is supposed to guarantee.
+
+    In the base fixture, the order block is [93.0, 96.3] with midpoint
+    94.65, and the default 61.8%-79% OTE band comfortably contains it - so
+    that case doesn't exercise the bug. Narrow the OTE ratios (still
+    valid, still overlapping the OB) to a band that excludes 94.65 while
+    still overlapping [93.0, 96.3]: the old code would have returned
+    entry=94.65, outside this band.
+    """
+    from ict_bot.ict import premium_discount as pd_mod
+
+    df = _long_setup_df()
+    cfg = ICTStrategyConfig(require_kill_zone=True, require_ote=True, min_risk_reward=0.1, ote_low_ratio=0.746, ote_high_ratio=0.785)
+    strategy = ICTStrategy(cfg)
+    signal = strategy.generate_signal(df)
+
+    assert signal is not None
+    # Independently recompute the OTE band from this fixture's sweep price
+    # and CHoCH breakout close (same values the strategy itself derives).
+    sweep_price = 89.715
+    last_event_price = 105.0
+    ote = pd_mod.optimal_trade_entry(pd_mod.DealingRange(low=sweep_price, high=last_event_price), "bullish", cfg.ote_low_ratio, cfg.ote_high_ratio)
+    assert ote.bottom <= signal.entry <= ote.top
+    assert signal.entry != 94.65  # the old, out-of-band ob.midpoint

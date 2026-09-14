@@ -140,13 +140,22 @@ class ICTStrategy:
             if entry_zone_top < entry_zone_bottom:
                 entry_zone_top, entry_zone_bottom = ob.top, ob.bottom  # non-overlapping OB/FVG, fall back to OB
 
-        if cfg.require_ote and not (ote.bottom <= entry_zone_top and ote.top >= entry_zone_bottom):
-            return None
+        if cfg.require_ote:
+            if not (ote.bottom <= entry_zone_top and ote.top >= entry_zone_bottom):
+                return None
+            # The check above only proves the OB/FVG zone *overlaps* the
+            # OTE band, not that ob.midpoint below falls inside it - an
+            # off-center overlap can leave the OB's own midpoint outside
+            # the OTE band entirely. Narrow to the actual intersection so
+            # the entry this strategy names "Optimal Trade Entry" really
+            # is one whenever OTE is required.
+            entry_zone_top = min(entry_zone_top, ote.top)
+            entry_zone_bottom = max(entry_zone_bottom, ote.bottom)
 
         # A take-profit must be a genuine resting liquidity target - never
         # synthesize one from min_risk_reward, or that floor would always
         # trivially pass its own check on the fabricated target.
-        entry = ob.midpoint
+        entry = (entry_zone_top + entry_zone_bottom) / 2.0
         if side == Side.LONG:
             stop_loss = min(ob.bottom, sweep.price) * 0.999
             candidates = [p for p in pools if p.kind == "buy_side" and p.price > entry and not p.swept]
