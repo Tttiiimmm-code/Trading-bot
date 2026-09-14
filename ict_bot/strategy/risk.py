@@ -8,9 +8,12 @@ actually did.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,12 +33,29 @@ class RiskManager:
     def position_size(self, balance: float, entry: float, stop_loss: float) -> float:
         """Units/contracts to buy so a stop-out loses exactly
         ``risk_per_trade_pct`` of ``balance``.
+
+        This sizes purely for the intended stop-loss risk; it does not cap
+        the resulting notional to the account balance, since a leveraged
+        futures account may legitimately want more notional exposure than
+        equity. On a spot (unleveraged) account, a tight stop relative to
+        entry price can therefore ask for more notional than the balance
+        actually covers - the exchange/broker will reject or clamp such an
+        order. We only warn here rather than silently resize, since guessing
+        the account's actual leverage would be wrong as often as right.
         """
         risk_amount = balance * (self.config.risk_per_trade_pct / 100.0)
         stop_distance = abs(entry - stop_loss)
         if stop_distance <= 0:
             return 0.0
-        return risk_amount / stop_distance
+        amount = risk_amount / stop_distance
+        notional = amount * entry
+        if balance > 0 and notional > balance:
+            logger.warning(
+                "Position size for entry=%.4f/stop=%.4f implies notional %.2f > balance %.2f "
+                "(%.1fx) - only safe on a leveraged account; a spot account will reject or clamp this order.",
+                entry, stop_loss, notional, balance, notional / balance,
+            )
+        return amount
 
     def _roll_day(self, ts: pd.Timestamp, balance: float) -> None:
         day = ts.date()

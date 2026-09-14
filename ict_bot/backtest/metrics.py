@@ -30,11 +30,12 @@ class Trade:
 
 def pair_trades(fills: list[Fill]) -> list[Trade]:
     trades: list[Trade] = []
-    open_fill: Fill | None = None
+    open_fills: dict[str, Fill] = {}  # keyed by symbol, in case fills interleave across markets
     for fill in fills:
         if fill.reason == "entry":
-            open_fill = fill
+            open_fills[fill.symbol] = fill
             continue
+        open_fill = open_fills.pop(fill.symbol, None)
         if open_fill is None:
             continue
         if open_fill.side == Side.LONG:
@@ -54,7 +55,6 @@ def pair_trades(fills: list[Fill]) -> list[Trade]:
                 pnl=pnl,
             )
         )
-        open_fill = None
     return trades
 
 

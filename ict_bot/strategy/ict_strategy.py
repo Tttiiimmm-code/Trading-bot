@@ -71,6 +71,21 @@ class ICTStrategyConfig:
     kill_zones: list[killzones.KillZone] | None = None
 
 
+def _combine_entry_zone(ob: ob_mod.OrderBlock, fvg: fvg_mod.FairValueGap | None) -> tuple[float, float]:
+    """Intersect the order block's range with the FVG's range (if any) to
+    tighten the entry zone to where both agree - a plain interval
+    intersection, which doesn't depend on trade side. Falls back to the
+    order block alone if the two don't overlap.
+    """
+    if fvg is None:
+        return ob.top, ob.bottom
+    top = min(ob.top, fvg.top)
+    bottom = max(ob.bottom, fvg.bottom)
+    if top < bottom:
+        return ob.top, ob.bottom  # non-overlapping OB/FVG, fall back to OB
+    return top, bottom
+
+
 class ICTStrategy:
     """Stateless-per-call strategy: pass a trailing OHLCV window (oldest to
     newest, most recent bar = the just-confirmed candle) and get back a
@@ -132,13 +147,8 @@ class ICTStrategy:
             rng = pd_mod.DealingRange(low=last_event.price, high=sweep.price)
         ote = pd_mod.optimal_trade_entry(rng, direction_str, cfg.ote_low_ratio, cfg.ote_high_ratio)
 
-        entry_zone_top, entry_zone_bottom = ob.top, ob.bottom
-        if candidate_fvgs:
-            fvg = candidate_fvgs[-1]
-            entry_zone_top = min(entry_zone_top, fvg.top) if side == Side.LONG else max(entry_zone_top, fvg.top)
-            entry_zone_bottom = max(entry_zone_bottom, fvg.bottom) if side == Side.LONG else min(entry_zone_bottom, fvg.bottom)
-            if entry_zone_top < entry_zone_bottom:
-                entry_zone_top, entry_zone_bottom = ob.top, ob.bottom  # non-overlapping OB/FVG, fall back to OB
+        fvg = candidate_fvgs[-1] if candidate_fvgs else None
+        entry_zone_top, entry_zone_bottom = _combine_entry_zone(ob, fvg)
 
         if cfg.require_ote and not (ote.bottom <= entry_zone_top and ote.top >= entry_zone_bottom):
             return None

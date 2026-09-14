@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from ict_bot.strategy.risk import RiskConfig, RiskManager
 
@@ -13,6 +14,23 @@ def test_position_size_matches_risk_amount():
 def test_position_size_zero_for_zero_stop_distance():
     rm = RiskManager(RiskConfig())
     assert rm.position_size(balance=10_000, entry=100, stop_loss=100) == 0.0
+
+
+def test_position_size_warns_when_notional_exceeds_balance(caplog):
+    # Tight stop relative to entry -> the risk-sized position needs far more
+    # notional than the account actually holds (implied leverage).
+    rm = RiskManager(RiskConfig(risk_per_trade_pct=1.0))
+    with caplog.at_level("WARNING"):
+        size = rm.position_size(balance=10_000, entry=100, stop_loss=99.9)
+    assert size == pytest.approx(1000)  # 100 risk / 0.1 stop distance
+    assert any("leveraged account" in record.message for record in caplog.records)
+
+
+def test_position_size_no_warning_when_notional_within_balance(caplog):
+    rm = RiskManager(RiskConfig(risk_per_trade_pct=1.0))
+    with caplog.at_level("WARNING"):
+        rm.position_size(balance=10_000, entry=100, stop_loss=95)
+    assert caplog.records == []
 
 
 def test_daily_loss_circuit_breaker_blocks_new_trades():

@@ -32,6 +32,22 @@ def fetch_ohlcv(
     return df
 
 
+def fetch_ohlcv_closed(
+    exchange: ccxt.Exchange, symbol: str, timeframe: str = "15m", limit: int = 500
+) -> pd.DataFrame:
+    """Like :func:`fetch_ohlcv`, but only returns fully closed candles.
+
+    Most exchanges include the still-forming current candle as the last row
+    of a ``fetch_ohlcv`` response - its OHLC values keep changing until the
+    period ends. Feeding that into structure/liquidity detection would
+    violate the "a swing only confirms once later bars have closed"
+    invariant those detectors rely on, so this always fetches one extra
+    candle and drops the last (possibly still-open) row before returning.
+    """
+    raw = fetch_ohlcv(exchange, symbol, timeframe=timeframe, limit=limit + 1)
+    return raw.iloc[:-1]
+
+
 def fetch_ohlcv_history(
     exchange: ccxt.Exchange, symbol: str, timeframe: str = "15m", since_ms: int | None = None, max_bars: int = 5000
 ) -> pd.DataFrame:

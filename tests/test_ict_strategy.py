@@ -2,8 +2,40 @@
 OTE overlap -> Signal. Hand-crafted so every stage of the pipeline is
 independently verifiable rather than relying on random/real market data.
 """
-from ict_bot.strategy.ict_strategy import ICTStrategy, ICTStrategyConfig, Side
+from ict_bot.ict.fvg import FairValueGap
+from ict_bot.ict.order_blocks import OrderBlock
+from ict_bot.strategy.ict_strategy import ICTStrategy, ICTStrategyConfig, Side, _combine_entry_zone
 from tests.conftest import rows_to_df, zigzag_rows
+
+
+def _ob(top, bottom):
+    return OrderBlock(index=None, top=top, bottom=bottom, direction="bullish", broken_at=None)
+
+
+def _fvg(top, bottom):
+    return FairValueGap(index=None, top=top, bottom=bottom, direction="bullish")
+
+
+def test_combine_entry_zone_no_fvg_returns_order_block_range():
+    assert _combine_entry_zone(_ob(top=110, bottom=100), None) == (110, 100)
+
+
+def test_combine_entry_zone_intersects_overlapping_fvg():
+    # FVG narrower than and inside the OB -> intersection is the FVG's range.
+    assert _combine_entry_zone(_ob(top=110, bottom=100), _fvg(top=106, bottom=104)) == (106, 104)
+
+
+def test_combine_entry_zone_intersects_partially_overlapping_fvg():
+    # FVG extends above the OB -> intersection is bounded by the OB's top.
+    assert _combine_entry_zone(_ob(top=110, bottom=100), _fvg(top=115, bottom=105)) == (110, 105)
+
+
+def test_combine_entry_zone_falls_back_to_ob_when_disjoint():
+    # FVG sits entirely above the OB - no overlap, so the OB alone is used
+    # (this used to silently produce an inverted zone for short signals,
+    # since the combination logic used to differ by trade side even though
+    # interval intersection never should).
+    assert _combine_entry_zone(_ob(top=110, bottom=100), _fvg(top=130, bottom=120)) == (110, 100)
 
 
 def _long_setup_df():
@@ -38,6 +70,49 @@ def _long_setup_df():
     # 03:45 UTC start lands the final (46th) bar at 15:00 UTC, inside the
     # london_close kill zone [15:00, 16:30).
     return rows_to_df(rows, start="2024-01-01 03:45")
+
+
+def _short_setup_df():
+    # Mirror of _long_setup_df: bullish trend with repeated higher highs/lows,
+    # so the eventual break back down is a genuine CHoCH (reversal).
+    trend_rows = zigzag_rows([50, 60, 52, 75, 67, 92, 85, 105], bars_per_leg=3)
+    # Two wick-only equal lows (~99.5) below the eventual entry: a resting
+    # sell-side liquidity pool the strategy can target as its take-profit.
+    bump_rows = [
+        (105.0, 106.0, 104.0, 105.0),
+        (105.0, 106.0, 104.0, 105.0),
+        (105.0, 105.5, 99.5, 104.5),
+        (104.5, 105.5, 104.0, 105.0),
+        (105.0, 106.0, 104.0, 105.0),
+        (105.0, 105.5, 99.48, 104.7),
+        (104.7, 105.5, 104.0, 105.0),
+        (105.0, 106.0, 104.0, 105.0),
+    ]
+    # Double top: two equal highs (~110 / ~109.97) form a buy-side liquidity pool.
+    base_rows = zigzag_rows([105, 110, 107, 109.97, 108], bars_per_leg=3)
+    # Sweep candle: wicks above the pool, closes back below it (stop hunt).
+    sweep_row = (108.0, 110.5, 107.7, 108.5)
+    # Order block: last up-close candle before the displacement, sitting
+    # inside the OTE (61.8%-79%) retracement of the down-leg that follows.
+    ob_row = (104.5, 107.0, 103.7, 106.8)
+    # Displacement candle that closes back below the last swing low -> CHoCH.
+    breakout_row = (106.8, 107.2, 92.0, 93.0)
+
+    rows = trend_rows + bump_rows + base_rows + [sweep_row, ob_row, breakout_row]
+    # 03:45 UTC start lands the final (46th) bar at 15:00 UTC, inside the
+    # london_close kill zone [15:00, 16:30).
+    return rows_to_df(rows, start="2024-01-01 03:45")
+
+
+def test_full_confluence_produces_short_signal():
+    df = _short_setup_df()
+    strategy = ICTStrategy(ICTStrategyConfig(require_kill_zone=True, require_ote=True, min_risk_reward=1.0))
+    signal = strategy.generate_signal(df)
+
+    assert signal is not None
+    assert signal.side == Side.SHORT
+    assert signal.take_profit < signal.entry < signal.stop_loss
+    assert signal.risk_reward >= 1.0
 
 
 def test_full_confluence_produces_long_signal():

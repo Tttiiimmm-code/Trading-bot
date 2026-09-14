@@ -1,5 +1,3 @@
-import pandas as pd
-
 from ict_bot.ict.fvg import detect_fvgs
 from tests.conftest import rows_to_df
 

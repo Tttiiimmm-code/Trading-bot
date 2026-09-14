@@ -21,7 +21,6 @@ def test_equal_lows_form_sell_side_pool_and_get_swept():
 
 def test_recent_sweep_respects_lookback_window():
     rows = zigzag_rows([95, 90, 93, 90.03, 92], bars_per_leg=3)
-    sweep_i = len(rows)
     rows.append((92.0, 92.3, 89.5, 91.5))
     rows.extend(zigzag_rows([91.5, 96], bars_per_leg=3)[1:])
     df = rows_to_df(rows)
