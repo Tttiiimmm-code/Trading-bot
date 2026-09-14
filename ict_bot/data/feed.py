@@ -69,7 +69,16 @@ def load_ohlcv_csv(path: str) -> pd.DataFrame:
     """Load OHLCV data previously saved to CSV (columns: timestamp, open,
     high, low, close, volume). Useful for offline backtesting without
     hitting an exchange API.
+
+    Sorts by timestamp and drops duplicate timestamps (keeping the last):
+    unlike ``fetch_ohlcv_history``, a CSV's row order and uniqueness aren't
+    guaranteed (a common export format is newest-first, or a file gets
+    concatenated from overlapping pages). Every detector and the backtest
+    engine assume strictly increasing timestamps - feeding them
+    out-of-order or duplicate rows silently produces a nonsense backtest
+    rather than an error.
     """
     df = pd.read_csv(path)
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-    return df.set_index("timestamp")
+    df = df.set_index("timestamp").sort_index()
+    return df[~df.index.duplicated(keep="last")]
