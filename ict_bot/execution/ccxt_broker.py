@@ -31,6 +31,12 @@ class CCXTBroker(Broker):
         # (e.g. "USDT" for BTC/USDT, "EUR" for BTC/EUR) - hardcoding a
         # single currency here would silently size positions off the wrong
         # (or a missing, zeroed) balance for any other market.symbol.
+        # Assumes quote == settle currency, true for spot pairs and linear
+        # (USDT/USDC-margined) perpetuals - the configurations this bot
+        # targets. It does NOT hold for inverse/coin-margined contracts
+        # (e.g. Binance COIN-M's BTC/USD:BTC, settled in BTC): don't point
+        # this broker at one without extending balance lookup to the
+        # market's actual settle currency first.
         self.quote_currency = symbol.split("/")[1]
         self.use_native_sl_tp = use_native_sl_tp
         self._positions: dict[str, Position] = {}
