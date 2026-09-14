@@ -92,7 +92,13 @@ class CCXTBroker(Broker):
         order_ids = self._protective_order_ids.pop(symbol, {})
         for order_id in order_ids.values():
             try:
-                self.exchange.cancel_order(order_id, symbol)
+                # trigger=True: these are conditional/algo orders, not
+                # regular ones - ccxt (and the exchanges it wraps) route
+                # cancellation to a completely different endpoint for
+                # them. Without it the call silently targets the wrong
+                # order namespace: no error, no effect, and the
+                # conditional order stays resting on the exchange.
+                self.exchange.cancel_order(order_id, symbol, params={"trigger": True})
             except Exception:  # pragma: no cover - exchange/network dependent; already filled/cancelled orders error here
                 logger.debug("Could not cancel protective order %s for %s (likely already filled or cancelled).", order_id, symbol)
 
@@ -145,7 +151,12 @@ class CCXTBroker(Broker):
     def _check_native_fill(self, symbol: str, position: Position, protective: dict[str, str], ts: pd.Timestamp) -> Fill | None:
         for reason, order_id in protective.items():
             try:
-                order = self.exchange.fetch_order(order_id, symbol)
+                # trigger=True: same conditional/algo-order routing as the
+                # cancel call below - without it this looks up the id in
+                # the regular order namespace, where it doesn't exist
+                # (OrderNotFound), even though the order is genuinely
+                # resting on the exchange.
+                order = self.exchange.fetch_order(order_id, symbol, params={"trigger": True})
             except Exception:  # pragma: no cover - exchange/network dependent
                 logger.exception("Could not fetch protective order %s (%s) for %s.", order_id, reason, symbol)
                 continue

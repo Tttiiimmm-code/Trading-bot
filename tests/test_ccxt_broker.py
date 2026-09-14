@@ -18,6 +18,15 @@ Covers three bugs found by reasoning about the live execution path:
    since that rejection never returns a Fill, the risk manager's
    open-position count gets stuck forever. Native orders' own status is
    now the sole source of truth whenever they're tracked.
+4. Verified live against Binance USDM futures testnet: the SL/TP orders
+   placed via ``stopLossPrice``/``takeProfitPrice`` come back as
+   conditional/algo orders (a Binance ``algoId``, not a regular
+   ``orderId``). ccxt's unified ``fetch_order``/``cancel_order`` silently
+   look the id up in the *regular* order namespace unless called with
+   ``params={"trigger": True}`` - without it, fetch raised OrderNotFound
+   for orders that were genuinely resting on the exchange, and cancel
+   silently no-opped, leaving them dangling. The fake exchange below
+   enforces the same requirement so this can't regress unnoticed.
 """
 from __future__ import annotations
 
@@ -56,10 +65,16 @@ class _FakeExchange:
         self._orders_by_id[order_id] = order
         return order
 
-    def cancel_order(self, order_id, symbol):
+    def cancel_order(self, order_id, symbol, params=None):
+        # Mirrors real Binance behavior: a conditional/algo order id is not
+        # found in the regular order namespace without trigger=True.
+        if not (params and params.get("trigger")):
+            raise Exception(f"order {order_id} not found")
         self.cancelled_order_ids.append(order_id)
 
-    def fetch_order(self, order_id, symbol):
+    def fetch_order(self, order_id, symbol, params=None):
+        if not (params and params.get("trigger")):
+            raise Exception(f"order {order_id} not found")
         order = self._orders_by_id.get(order_id)
         if order is None:
             raise Exception(f"order {order_id} not found")
@@ -74,7 +89,7 @@ class _FakeExchange:
 class _FailingCancelExchange(_FakeExchange):
     """Simulates an exchange rejecting cancellation of an already-filled order."""
 
-    def cancel_order(self, order_id, symbol):
+    def cancel_order(self, order_id, symbol, params=None):
         raise Exception(f"order {order_id} not found (already filled)")
 
 
