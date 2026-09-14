@@ -14,6 +14,12 @@ def make_exchange(exchange_id: str, api_key: str = "", api_secret: str = "", san
     params = {"apiKey": api_key, "secret": api_secret, "enableRateLimit": True}
     params.update(extra or {})
     exchange = exchange_class(params)
+    # ccxt's underlying requests.Session defaults trust_env=False, so it
+    # silently ignores standard HTTP(S)_PROXY/NO_PROXY and CA-bundle
+    # env vars - breaking any environment that routes outbound HTTPS
+    # through a corporate or sandboxed proxy. Restore the normal requests
+    # behavior of honoring those env vars.
+    exchange.session.trust_env = True
     if sandbox and hasattr(exchange, "set_sandbox_mode"):
         exchange.set_sandbox_mode(True)
     return exchange
