@@ -19,7 +19,7 @@ import pandas as pd
 from ict_bot.backtest.engine import BacktestEngine, BacktestConfig as EngineBacktestConfig
 from ict_bot.backtest.metrics import compute_metrics, pair_trades
 from ict_bot.config import AppConfig, load_config
-from ict_bot.data.feed import fetch_ohlcv, fetch_ohlcv_history, load_ohlcv_csv, make_exchange
+from ict_bot.data.feed import fetch_ohlcv_closed, fetch_ohlcv_history, load_ohlcv_csv, make_exchange
 from ict_bot.execution.broker import Broker
 from ict_bot.execution.ccxt_broker import CCXTBroker, quote_currency_from_symbol
 from ict_bot.execution.paper import PaperBroker
@@ -44,7 +44,7 @@ def cmd_backtest(args: argparse.Namespace) -> None:
             since_ms = int(pd.Timestamp(args.since, tz="UTC").timestamp() * 1000)
         elif config.backtest.history_bars:
             tf_ms = exchange.parse_timeframe(config.market.timeframe) * 1000
-            since_ms = int(pd.Timestamp.utcnow().timestamp() * 1000) - tf_ms * config.backtest.history_bars
+            since_ms = int(pd.Timestamp.now("UTC").timestamp() * 1000) - tf_ms * config.backtest.history_bars
         df = fetch_ohlcv_history(exchange, config.market.symbol, config.market.timeframe, since_ms=since_ms, max_bars=config.backtest.history_bars)
 
     if df.empty:
@@ -91,14 +91,14 @@ def cmd_live(args: argparse.Namespace) -> None:
         logger.info("Paper trading mode: simulated balance %.2f", starting_balance)
         broker = PaperBroker(starting_balance)
 
-    window = fetch_ohlcv(exchange, symbol, timeframe, limit=max(config.backtest.window_size, 100))
+    window = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=max(config.backtest.window_size, 100))
     pending: Signal | None = None
     pending_bars_left = 0
 
     logger.info("Starting live loop (%s) on %s %s. Ctrl+C to stop.", args.mode, symbol, timeframe)
     while True:
         try:
-            latest = fetch_ohlcv(exchange, symbol, timeframe, limit=2)
+            latest = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=2)
             new_closed = latest[latest.index > window.index[-1]]
             if not new_closed.empty:
                 window = pd.concat([window, new_closed]).iloc[-config.backtest.window_size :]
@@ -113,12 +113,18 @@ def cmd_live(args: argparse.Namespace) -> None:
                 if pending is not None:
                     pending_bars_left -= 1
                     touched = bar["low"] <= pending.entry <= bar["high"]
+                    filled = False
                     if touched and broker.get_open_position(symbol) is None:
                         amount = risk_manager.position_size(broker.get_balance(), pending.entry, pending.stop_loss)
                         if amount > 0:
                             broker.open_position(symbol, pending.side, amount, pending.entry, pending.stop_loss, pending.take_profit, ts)
                             risk_manager.register_open()
                             logger.info("Entered %s @ %.4f (SL %.4f / TP %.4f) - %s", pending.side.value, pending.entry, pending.stop_loss, pending.take_profit, pending.reason)
+                            filled = True
+                    # Match the backtest engine: a touch that couldn't be sized
+                    # (e.g. balance too low) keeps the order pending until it
+                    # genuinely expires, instead of discarding it early.
+                    if filled:
                         pending = None
                     elif pending_bars_left <= 0:
                         logger.info("Pending signal expired unfilled: %s", pending.reason)

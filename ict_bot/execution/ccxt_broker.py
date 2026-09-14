@@ -75,7 +75,16 @@ class CCXTBroker(Broker):
     def _place_protective_orders(self, symbol: str, side: Side, amount: float, stop_loss: float, take_profit: float) -> tuple[str, str]:
         close_side = "sell" if side == Side.LONG else "buy"
         sl_order = self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params={"stopLossPrice": stop_loss, "reduceOnly": True})
-        tp_order = self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params={"takeProfitPrice": take_profit, "reduceOnly": True})
+        try:
+            tp_order = self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params={"takeProfitPrice": take_profit, "reduceOnly": True})
+        except Exception:
+            # Don't leave the already-placed stop-loss order resting on the
+            # exchange, untracked, if the take-profit leg failed to place.
+            try:
+                self.exchange.cancel_order(sl_order["id"], symbol)
+            except Exception:  # pragma: no cover - exchange/network dependent
+                logger.exception("Failed to roll back orphaned stop-loss order %s for %s", sl_order["id"], symbol)
+            raise
         return sl_order["id"], tp_order["id"]
 
     def _cancel_protective_orders(self, symbol: str, skip_order_id: str | None = None) -> None:

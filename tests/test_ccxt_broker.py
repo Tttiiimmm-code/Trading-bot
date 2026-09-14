@@ -18,17 +18,22 @@ from ict_bot.strategy.ict_strategy import Side
 
 
 class FakeExchange:
-    def __init__(self, balances: dict, order_price: float | None = None):
+    def __init__(self, balances: dict, order_price: float | None = None, fail_nth_create: int | None = None):
         self._balances = balances
         self._orders: dict[str, dict] = {}
         self._next_id = 1
         self.order_price = order_price
         self.cancelled: list[str] = []
+        self.fail_nth_create = fail_nth_create
+        self._create_calls = 0
 
     def fetch_balance(self) -> dict:
         return self._balances
 
     def create_order(self, symbol, type, side, amount, params=None) -> dict:
+        self._create_calls += 1
+        if self.fail_nth_create is not None and self._create_calls == self.fail_nth_create:
+            raise RuntimeError("simulated exchange failure")
         order_id = str(self._next_id)
         self._next_id += 1
         order = {
@@ -154,6 +159,21 @@ def test_polling_fallback_used_when_native_orders_not_placed():
     assert fill.reason == "stop_loss"
     assert fill.price == 95.0  # stop_loss price, not the bar low
     assert broker.get_open_position("BTC/USDT") is None
+
+
+def test_failed_take_profit_placement_rolls_back_stop_loss_order():
+    # entry order = create call #1, stop-loss = #2, take-profit = #3 (fails).
+    exchange = FakeExchange(balances={}, fail_nth_create=3)
+    broker = CCXTBroker(exchange, use_native_sl_tp=True)
+    ts0 = pd.Timestamp("2024-01-01 00:00", tz="UTC")
+
+    _open_long(exchange, broker, ts0)  # must not raise despite the native SL/TP failure
+
+    assert "BTC/USDT" not in broker._protective_orders
+    # The stop-loss order that succeeded before the take-profit failed must
+    # have been cancelled, not left resting untracked on the exchange.
+    assert "2" in exchange.cancelled
+    assert broker.get_open_position("BTC/USDT") is not None  # entry itself still succeeded
 
 
 def test_manual_close_cancels_leftover_native_orders():
