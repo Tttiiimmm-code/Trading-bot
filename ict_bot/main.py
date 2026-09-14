@@ -138,10 +138,29 @@ def _process_closed_bar(
         if touched and broker.get_open_position(symbol) is None:
             amount = risk_manager.position_size(broker.get_balance(), pending.entry, pending.stop_loss)
             if amount > 0:
-                broker.open_position(symbol, pending.side, amount, pending.entry, pending.stop_loss, pending.take_profit, ts)
-                risk_manager.register_open()
-                logger.info("Entered %s @ %.4f (SL %.4f / TP %.4f) - %s", pending.side.value, pending.entry, pending.stop_loss, pending.take_profit, pending.reason)
-            pending = None
+                try:
+                    broker.open_position(symbol, pending.side, amount, pending.entry, pending.stop_loss, pending.take_profit, ts)
+                    risk_manager.register_open()
+                    logger.info("Entered %s @ %.4f (SL %.4f / TP %.4f) - %s", pending.side.value, pending.entry, pending.stop_loss, pending.take_profit, pending.reason)
+                    pending = None
+                except Exception:
+                    # Leave `pending` in place (already-decremented
+                    # pending_bars_left included) rather than letting the
+                    # exception propagate: that would abort this whole
+                    # closed-candle loop AND discard the decrement/clear
+                    # this function already computed, since the caller
+                    # never gets this function's return value on a raise.
+                    logger.exception("Failed to open position for %s at %s; will retry until the pending signal expires.", symbol, ts)
+                    if pending_bars_left <= 0:
+                        # Bound the retries to pending_order_expiry_bars
+                        # even though this branch keeps re-entering (price
+                        # still touches entry every bar) rather than the
+                        # elif below, which a persistently touched price
+                        # would never fall through to.
+                        logger.info("Pending signal expired after repeated failures to open: %s", pending.reason)
+                        pending = None
+            else:
+                pending = None
         elif pending_bars_left <= 0:
             logger.info("Pending signal expired unfilled: %s", pending.reason)
             pending = None

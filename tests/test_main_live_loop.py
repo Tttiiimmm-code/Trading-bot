@@ -121,3 +121,48 @@ def test_no_conflicting_position_exists_false_when_a_position_is_already_open():
 def test_no_conflicting_position_exists_true_when_exchange_cannot_check():
     exchange = _FakeExchange(supports_fetch_positions=False)
     assert _no_conflicting_position_exists(exchange, "BTC/USDT") is True
+
+
+class _AlwaysRejectsOrdersBroker(PaperBroker):
+    """Simulates open_position() always failing - e.g. a computed size
+    below the exchange's minimum order quantity/notional, or a transient
+    network error.
+    """
+
+    def open_position(self, *args, **kwargs):
+        raise RuntimeError("order rejected")
+
+
+def test_pending_signal_still_expires_normally_when_open_position_keeps_failing():
+    """Regression: an exception from open_position() used to propagate
+    out of _process_closed_bar before its (pending, pending_bars_left)
+    return value was produced, so the caller never saw the decrement
+    this call already computed - pending_bars_left effectively never
+    counted down and the pending signal could retry forever instead of
+    expiring after pending_order_expiry_bars, as it's supposed to.
+    """
+    from ict_bot.strategy.ict_strategy import Signal
+
+    broker = _AlwaysRejectsOrdersBroker(10_000)
+    risk_manager = RiskManager(RiskConfig(max_open_positions=1))
+    strategy = ICTStrategy()
+    window = pd.DataFrame()
+    config = _config(pending_order_expiry_bars=3)
+
+    pending = Signal(index=pd.Timestamp("2024-01-01 10:00", tz="UTC"), side=Side.LONG, entry=95.0, stop_loss=90.0, take_profit=110.0, reason="test")
+    pending_bars_left = 3
+    # Every bar keeps trading through the entry price, so open_position()
+    # (and thus the failure) is attempted on every one of them.
+    bar = pd.Series({"open": 96.0, "high": 96.5, "low": 94.0, "close": 95.5})
+
+    for i in range(3):
+        ts = pd.Timestamp("2024-01-01 10:00", tz="UTC") + pd.Timedelta(minutes=15 * (i + 1))
+        pending, pending_bars_left = _process_closed_bar(
+            broker, risk_manager, strategy, config, "BTC/USDT", window, pending, pending_bars_left, bar, ts
+        )
+        assert pending_bars_left == 3 - (i + 1)  # decrements every bar despite the failure
+
+    # Expired after exactly pending_order_expiry_bars failed attempts,
+    # not stuck retrying forever.
+    assert pending is None
+    assert broker.get_open_position("BTC/USDT") is None
