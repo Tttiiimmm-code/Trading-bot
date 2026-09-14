@@ -87,6 +87,7 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         risk_per_trade_pct=r.get("risk_per_trade_pct", 1.0),
         max_daily_loss_pct=r.get("max_daily_loss_pct", 3.0),
         max_open_positions=r.get("max_open_positions", 1),
+        max_position_pct=r.get("max_position_pct", 100.0),
     )
 
     b = raw.get("backtest", {})

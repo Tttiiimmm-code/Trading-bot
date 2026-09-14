@@ -27,6 +27,7 @@ risk:
   risk_per_trade_pct: 1.0
   max_daily_loss_pct: 3.0
   max_open_positions: 1
+  max_position_pct: 100.0  # cap notional exposure per trade as % of balance; 100 = no leverage (spot-safe)
 
 backtest:
   starting_balance: 10000

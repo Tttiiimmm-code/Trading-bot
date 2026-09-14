@@ -15,6 +15,22 @@ def test_position_size_zero_for_zero_stop_distance():
     assert rm.position_size(balance=10_000, entry=100, stop_loss=100) == 0.0
 
 
+def test_position_size_capped_by_max_position_pct_for_tight_stops():
+    # A stop only 0.4% away from entry would otherwise size to notional
+    # 25,000 for a 100-risk (1% of 10,000) trade - 2.5x the whole account.
+    rm = RiskManager(RiskConfig(risk_per_trade_pct=1.0, max_position_pct=100.0))
+    size = rm.position_size(balance=10_000, entry=25_000, stop_loss=24_900)
+    notional = size * 25_000
+    assert notional <= 10_000 + 1e-9
+    assert size == 10_000 / 25_000  # clamped to exactly 100% of balance
+
+
+def test_position_size_unaffected_by_cap_for_normal_stops():
+    rm = RiskManager(RiskConfig(risk_per_trade_pct=1.0, max_position_pct=100.0))
+    size = rm.position_size(balance=10_000, entry=100, stop_loss=95)
+    assert size == 20  # well below the notional cap, so unchanged
+
+
 def test_daily_loss_circuit_breaker_blocks_new_trades():
     rm = RiskManager(RiskConfig(max_daily_loss_pct=3.0, max_open_positions=5))
     ts = pd.Timestamp("2024-01-01 10:00", tz="UTC")

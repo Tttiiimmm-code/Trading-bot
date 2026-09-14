@@ -48,10 +48,13 @@ def _make_historical_ohlcv_csv(path, num_bars: int = 2000, seed: int = 7) -> Non
 
 def test_backtest_against_historical_csv_data(tmp_path):
     csv_path = tmp_path / "historical_ohlcv.csv"
-    _make_historical_ohlcv_csv(csv_path, num_bars=600)
+    # seed=8/1500 bars is chosen because it reliably produces a couple of
+    # trades on this synthetic series, so the notional-exposure check below
+    # actually exercises the position-sizing cap instead of being vacuous.
+    _make_historical_ohlcv_csv(csv_path, num_bars=1500, seed=8)
 
     df = load_ohlcv_csv(str(csv_path))
-    assert len(df) == 600
+    assert len(df) == 1500
     assert list(df.columns) == ["open", "high", "low", "close", "volume"]
     assert isinstance(df.index, pd.DatetimeIndex)
     assert (df["high"] >= df[["open", "close"]].max(axis=1)).all()
@@ -81,6 +84,19 @@ def test_backtest_against_historical_csv_data(tmp_path):
     trades = pair_trades(result.fills)
     entries = [f for f in result.fills if f.reason == "entry"]
     assert len(entries) == len(trades)  # every entry in this run is paired with an exit
+    assert len(trades) > 0  # otherwise the notional-exposure check below would be vacuous
+
+    # Position sizing must never commit more notional than the account
+    # actually has, however tight the signal's stop-loss is. A stop close
+    # to entry (common for ICT order-block entries) otherwise blows up
+    # risk_amount / stop_distance into several times the account balance -
+    # implicit, unbounded leverage a real account can't take on.
+    running_balance = starting_balance
+    for trade in trades:
+        notional = trade.entry_price * trade.amount
+        max_notional = running_balance * (risk_manager.config.max_position_pct / 100.0)
+        assert notional <= max_notional + 1e-6
+        running_balance += trade.pnl
 
     metrics = compute_metrics(trades, result.equity_curve, starting_balance=starting_balance)
     assert metrics["num_trades"] == len(trades)
