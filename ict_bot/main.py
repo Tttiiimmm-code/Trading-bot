@@ -72,6 +72,56 @@ def cmd_backtest(args: argparse.Namespace) -> None:
             print(f"{key:20s}: {value}")
 
 
+def _process_closed_bar(
+    broker: Broker,
+    risk_manager: RiskManager,
+    strategy: ICTStrategy,
+    config: AppConfig,
+    symbol: str,
+    window: pd.DataFrame,
+    pending: Signal | None,
+    pending_bars_left: int,
+    bar: pd.Series,
+    ts: pd.Timestamp,
+) -> tuple[Signal | None, int]:
+    """Apply one confirmed-closed candle to the broker/strategy/risk state -
+    stop/target check, pending-limit-order fill/expiry, then a fresh signal
+    if nothing is open. Mirrors one iteration of the backtest engine's
+    bar loop; must be called once per closed candle in chronological
+    order (never only the most recent of several) or a stop-loss/take-
+    profit hit or a limit-order fill on an earlier candle silently never
+    gets detected.
+    """
+    fill = broker.check_stop_and_target(symbol, bar, ts)
+    if fill is not None:
+        risk_manager.register_close()
+        logger.info("Position closed: %s @ %.4f (%s)", fill.side.value, fill.price, fill.reason)
+
+    if pending is not None:
+        pending_bars_left -= 1
+        touched = bar["low"] <= pending.entry <= bar["high"]
+        if touched and broker.get_open_position(symbol) is None:
+            amount = risk_manager.position_size(broker.get_balance(), pending.entry, pending.stop_loss)
+            if amount > 0:
+                broker.open_position(symbol, pending.side, amount, pending.entry, pending.stop_loss, pending.take_profit, ts)
+                risk_manager.register_open()
+                logger.info("Entered %s @ %.4f (SL %.4f / TP %.4f) - %s", pending.side.value, pending.entry, pending.stop_loss, pending.take_profit, pending.reason)
+            pending = None
+        elif pending_bars_left <= 0:
+            logger.info("Pending signal expired unfilled: %s", pending.reason)
+            pending = None
+
+    if pending is None and broker.get_open_position(symbol) is None:
+        if risk_manager.can_open_trade(ts, broker.get_balance()):
+            signal = strategy.generate_signal(window)
+            if signal is not None:
+                logger.info("New signal: %s entry=%.4f sl=%.4f tp=%.4f (%s)", signal.side.value, signal.entry, signal.stop_loss, signal.take_profit, signal.reason)
+                pending = signal
+                pending_bars_left = config.backtest.pending_order_expiry_bars
+
+    return pending, pending_bars_left
+
+
 def cmd_live(args: argparse.Namespace) -> None:
     config: AppConfig = load_config(args.config)
     strategy = ICTStrategy(config.strategy)
@@ -80,6 +130,7 @@ def cmd_live(args: argparse.Namespace) -> None:
     timeframe = config.market.timeframe
 
     exchange = make_exchange(config.exchange.id, config.exchange.api_key, config.exchange.api_secret, sandbox=config.exchange.sandbox)
+    tf_ms = exchange.parse_timeframe(timeframe) * 1000
 
     broker: Broker
     if args.mode == "live":
@@ -98,39 +149,23 @@ def cmd_live(args: argparse.Namespace) -> None:
     logger.info("Starting live loop (%s) on %s %s. Ctrl+C to stop.", args.mode, symbol, timeframe)
     while True:
         try:
-            latest = fetch_ohlcv(exchange, symbol, timeframe, limit=2)
-            new_closed = latest[latest.index > window.index[-1]]
-            if not new_closed.empty:
-                window = pd.concat([window, new_closed]).iloc[-config.backtest.window_size :]
-                bar = new_closed.iloc[-1]
-                ts = new_closed.index[-1]
+            # since_ms + a generous limit (not the single/last-bar fetch this
+            # used to be) so a poll after any delay - a slow response, the
+            # exception backoff below, downtime - still picks up *every*
+            # candle that closed in the gap, not just the newest one.
+            since_ms = int(window.index[-1].timestamp() * 1000) + tf_ms
+            latest = fetch_ohlcv(exchange, symbol, timeframe, since_ms=since_ms, limit=100)
+            now = pd.Timestamp.now("UTC")
+            # fetch_ohlcv can include the still-forming current candle;
+            # only feed the strategy/risk logic candles whose interval has
+            # actually elapsed.
+            closed = latest[(latest.index > window.index[-1]) & (latest.index + pd.Timedelta(milliseconds=tf_ms) <= now)]
 
-                fill = broker.check_stop_and_target(symbol, bar, ts)
-                if fill is not None:
-                    risk_manager.register_close()
-                    logger.info("Position closed: %s @ %.4f (%s)", fill.side.value, fill.price, fill.reason)
-
-                if pending is not None:
-                    pending_bars_left -= 1
-                    touched = bar["low"] <= pending.entry <= bar["high"]
-                    if touched and broker.get_open_position(symbol) is None:
-                        amount = risk_manager.position_size(broker.get_balance(), pending.entry, pending.stop_loss)
-                        if amount > 0:
-                            broker.open_position(symbol, pending.side, amount, pending.entry, pending.stop_loss, pending.take_profit, ts)
-                            risk_manager.register_open()
-                            logger.info("Entered %s @ %.4f (SL %.4f / TP %.4f) - %s", pending.side.value, pending.entry, pending.stop_loss, pending.take_profit, pending.reason)
-                        pending = None
-                    elif pending_bars_left <= 0:
-                        logger.info("Pending signal expired unfilled: %s", pending.reason)
-                        pending = None
-
-                if pending is None and broker.get_open_position(symbol) is None:
-                    if risk_manager.can_open_trade(ts, broker.get_balance()):
-                        signal = strategy.generate_signal(window)
-                        if signal is not None:
-                            logger.info("New signal: %s entry=%.4f sl=%.4f tp=%.4f (%s)", signal.side.value, signal.entry, signal.stop_loss, signal.take_profit, signal.reason)
-                            pending = signal
-                            pending_bars_left = config.backtest.pending_order_expiry_bars
+            for ts, bar in closed.iterrows():
+                window = pd.concat([window, closed.loc[[ts]]]).iloc[-config.backtest.window_size :]
+                pending, pending_bars_left = _process_closed_bar(
+                    broker, risk_manager, strategy, config, symbol, window, pending, pending_bars_left, bar, ts
+                )
 
             time.sleep(config.live.poll_interval_seconds)
         except KeyboardInterrupt:
