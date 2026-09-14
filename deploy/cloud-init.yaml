@@ -1,0 +1,73 @@
+#cloud-config
+#
+# Paste this into the cloud provider's "Cloud config" / "User data" field
+# when creating the server (e.g. Hetzner Cloud: shown during server
+# creation). Fully automates setup - by the time the server finishes
+# booting, the bot is already running in PAPER mode (simulated balance,
+# real market data, no real orders) as a systemd service that
+# auto-restarts on crash or reboot.
+#
+# Uses the repo's default config (config.example.yaml): Binance, BTC/USDT,
+# 15m, strict strategy settings (kill zone + OTE required, min RR 2.0).
+# Edit /opt/ict-bot/Trading-bot/config/config.yaml and
+# `systemctl restart ict-bot` to change anything - see deploy/README.md.
+#
+# Tested against Ubuntu 24.04 LTS.
+
+package_update: true
+
+packages:
+  - python3-venv
+  - python3-pip
+  - git
+
+users:
+  - name: ictbot
+    system: true
+    shell: /bin/bash
+    home: /opt/ict-bot
+
+write_files:
+  - path: /etc/systemd/system/ict-bot.service
+    content: |
+      [Unit]
+      Description=ICT trading bot (paper mode)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=ictbot
+      WorkingDirectory=/opt/ict-bot/Trading-bot
+      ExecStart=/opt/ict-bot/Trading-bot/.venv/bin/python -m ict_bot.main live --config config/config.yaml --mode paper
+      Restart=always
+      RestartSec=15
+      StandardOutput=append:/var/log/ict-bot.log
+      StandardError=append:/var/log/ict-bot.log
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/logrotate.d/ict-bot
+    content: |
+      /var/log/ict-bot.log {
+        daily
+        rotate 7
+        compress
+        missingok
+        notifempty
+        copytruncate
+      }
+
+runcmd:
+  - mkdir -p /opt/ict-bot
+  - chown ictbot:ictbot /opt/ict-bot
+  - touch /var/log/ict-bot.log
+  - chown ictbot:ictbot /var/log/ict-bot.log
+  - sudo -u ictbot git clone --depth 1 https://github.com/Tttiiimmm-code/Trading-bot.git /opt/ict-bot/Trading-bot
+  - sudo -u ictbot python3 -m venv /opt/ict-bot/Trading-bot/.venv
+  - sudo -u ictbot /opt/ict-bot/Trading-bot/.venv/bin/pip install --upgrade pip
+  - sudo -u ictbot /opt/ict-bot/Trading-bot/.venv/bin/pip install -r /opt/ict-bot/Trading-bot/requirements.txt
+  - sudo -u ictbot cp /opt/ict-bot/Trading-bot/config/config.example.yaml /opt/ict-bot/Trading-bot/config/config.yaml
+  - systemctl daemon-reload
+  - systemctl enable --now ict-bot.service
