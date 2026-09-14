@@ -127,3 +127,8 @@ through the strategy and the backtest engine.
 - Live order management is intentionally minimal (market entry + best
   effort native SL/TP); it does not manage complex order lifecycles
   (partial fills, order amendment, etc).
+- When native SL/TP orders are used, the bot detects a fill by polling
+  `fetch_order` on those two order ids - it does not reconcile the full
+  account/position state against the exchange, so a position closed by any
+  other means (manual intervention, exchange-side liquidation) will not be
+  noticed until the next native-fill or bar-range check.

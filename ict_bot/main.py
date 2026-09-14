@@ -21,7 +21,7 @@ from ict_bot.backtest.metrics import compute_metrics, pair_trades
 from ict_bot.config import AppConfig, load_config
 from ict_bot.data.feed import fetch_ohlcv, fetch_ohlcv_history, load_ohlcv_csv, make_exchange
 from ict_bot.execution.broker import Broker
-from ict_bot.execution.ccxt_broker import CCXTBroker
+from ict_bot.execution.ccxt_broker import CCXTBroker, quote_currency_from_symbol
 from ict_bot.execution.paper import PaperBroker
 from ict_bot.strategy.ict_strategy import ICTStrategy, Signal
 from ict_bot.strategy.risk import RiskManager
@@ -85,7 +85,7 @@ def cmd_live(args: argparse.Namespace) -> None:
     if args.mode == "live":
         if not config.exchange.sandbox:
             logger.warning("LIVE mode with sandbox=false: this will place REAL orders with REAL funds on %s.", config.exchange.id)
-        broker = CCXTBroker(exchange, use_native_sl_tp=config.live.use_native_sl_tp)
+        broker = CCXTBroker(exchange, quote_currency=quote_currency_from_symbol(symbol), use_native_sl_tp=config.live.use_native_sl_tp)
     else:
         starting_balance = config.backtest.starting_balance
         logger.info("Paper trading mode: simulated balance %.2f", starting_balance)
