@@ -32,18 +32,47 @@ systemctl status ict-bot
 journalctl -u ict-bot -n 100 --no-pager
 ```
 
+## Troubleshooting: `systemctl status ict-bot` shows `code=exited, status=203/EXEC`
+
+This means `/opt/ict-bot/Trading-bot/.venv/bin/python` doesn't exist, i.e.
+the `runcmd` steps in cloud-init never ran (only `systemctl enable --now`
+did, which is why the service exists but can't start). Check what actually
+happened during boot:
+
+```bash
+cat /var/log/cloud-init-output.log
+```
+
+If you see `sudo: Account or password is expired` there, your provider
+forced a password reset on first login and it broke a `sudo`/`su` call
+inside `runcmd` (this cloud-init file no longer uses one, but a modified
+copy might). Fix by running the missing setup steps manually, as root:
+
+```bash
+rm -rf /opt/ict-bot
+mkdir -p /opt/ict-bot
+git clone --depth 1 https://github.com/Tttiiimmm-code/Trading-bot.git /opt/ict-bot/Trading-bot
+python3 -m venv /opt/ict-bot/Trading-bot/.venv
+/opt/ict-bot/Trading-bot/.venv/bin/pip install --upgrade pip
+/opt/ict-bot/Trading-bot/.venv/bin/pip install -r /opt/ict-bot/Trading-bot/requirements.txt
+cp /opt/ict-bot/Trading-bot/config/config.example.yaml /opt/ict-bot/Trading-bot/config/config.yaml
+systemctl daemon-reload
+systemctl restart ict-bot
+systemctl status ict-bot
+```
+
 ## Changing the config
 
 ```bash
-sudo -u ictbot nano /opt/ict-bot/Trading-bot/config/config.yaml
-sudo systemctl restart ict-bot
+nano /opt/ict-bot/Trading-bot/config/config.yaml
+systemctl restart ict-bot
 ```
 
 ## Stopping it
 
 ```bash
-sudo systemctl stop ict-bot        # stop now
-sudo systemctl disable ict-bot     # also don't start on next reboot
+systemctl stop ict-bot        # stop now
+systemctl disable ict-bot     # also don't start on next reboot
 ```
 
 ## Going from paper to real trading
@@ -53,14 +82,14 @@ sudo systemctl disable ict-bot     # also don't start on next reboot
 live, on the server:
 
 1. Create `/opt/ict-bot/Trading-bot/.env` with your exchange API
-   key/secret (see `.env.example`) - as the `ictbot` user, and make sure
-   it's not world-readable (`chmod 600`).
+   key/secret (see `.env.example`), and make sure it's not
+   world-readable (`chmod 600 .env`).
 2. Keep `exchange.sandbox: true` in `config.yaml` and validate against the
    exchange's testnet first.
 3. Only then, deliberately edit
    `/etc/systemd/system/ict-bot.service`'s `ExecStart` line to
-   `--mode live`, `sudo systemctl daemon-reload`, and
-   `sudo systemctl restart ict-bot`.
+   `--mode live`, `systemctl daemon-reload`, and
+   `systemctl restart ict-bot`.
 
 Do this as a conscious, manual decision after you've watched the paper
 run behave sensibly - not as part of any automated setup.

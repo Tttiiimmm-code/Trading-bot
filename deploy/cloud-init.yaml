@@ -13,6 +13,14 @@
 # `systemctl restart ict-bot` to change anything - see deploy/README.md.
 #
 # Tested against Ubuntu 24.04 LTS.
+#
+# Runs everything as root rather than a dedicated service user: providers
+# like Hetzner set the root account to require a password change on first
+# interactive login, which makes `sudo -u <user>` fail non-interactively
+# during cloud-init's boot-time runcmd (no terminal to change the password
+# through) - the setup would silently never run. For a short-lived,
+# single-purpose paper-trading box this tradeoff is fine; harden it
+# (dedicated user, no root service) if this becomes a long-lived server.
 
 package_update: true
 
@@ -20,12 +28,6 @@ packages:
   - python3-venv
   - python3-pip
   - git
-
-users:
-  - name: ictbot
-    system: true
-    shell: /bin/bash
-    home: /opt/ict-bot
 
 write_files:
   - path: /etc/systemd/system/ict-bot.service
@@ -37,7 +39,6 @@ write_files:
 
       [Service]
       Type=simple
-      User=ictbot
       WorkingDirectory=/opt/ict-bot/Trading-bot
       ExecStart=/opt/ict-bot/Trading-bot/.venv/bin/python -m ict_bot.main live --config config/config.yaml --mode paper
       Restart=always
@@ -61,13 +62,11 @@ write_files:
 
 runcmd:
   - mkdir -p /opt/ict-bot
-  - chown ictbot:ictbot /opt/ict-bot
   - touch /var/log/ict-bot.log
-  - chown ictbot:ictbot /var/log/ict-bot.log
-  - sudo -u ictbot git clone --depth 1 https://github.com/Tttiiimmm-code/Trading-bot.git /opt/ict-bot/Trading-bot
-  - sudo -u ictbot python3 -m venv /opt/ict-bot/Trading-bot/.venv
-  - sudo -u ictbot /opt/ict-bot/Trading-bot/.venv/bin/pip install --upgrade pip
-  - sudo -u ictbot /opt/ict-bot/Trading-bot/.venv/bin/pip install -r /opt/ict-bot/Trading-bot/requirements.txt
-  - sudo -u ictbot cp /opt/ict-bot/Trading-bot/config/config.example.yaml /opt/ict-bot/Trading-bot/config/config.yaml
+  - git clone --depth 1 https://github.com/Tttiiimmm-code/Trading-bot.git /opt/ict-bot/Trading-bot
+  - python3 -m venv /opt/ict-bot/Trading-bot/.venv
+  - /opt/ict-bot/Trading-bot/.venv/bin/pip install --upgrade pip
+  - /opt/ict-bot/Trading-bot/.venv/bin/pip install -r /opt/ict-bot/Trading-bot/requirements.txt
+  - cp /opt/ict-bot/Trading-bot/config/config.example.yaml /opt/ict-bot/Trading-bot/config/config.yaml
   - systemctl daemon-reload
   - systemctl enable --now ict-bot.service
