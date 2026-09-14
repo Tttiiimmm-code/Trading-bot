@@ -31,6 +31,7 @@ class CCXTBroker(Broker):
         self.quote_currency = symbol.split("/")[1]
         self.use_native_sl_tp = use_native_sl_tp
         self._positions: dict[str, Position] = {}
+        self._protective_order_ids: dict[str, list[str]] = {}
         self.fills: list[Fill] = []
 
     def get_balance(self) -> float:
@@ -53,7 +54,7 @@ class CCXTBroker(Broker):
 
         if self.use_native_sl_tp:
             try:
-                self._place_protective_orders(symbol, side, amount, stop_loss, take_profit)
+                self._protective_order_ids[symbol] = self._place_protective_orders(symbol, side, amount, stop_loss, take_profit)
             except Exception:  # pragma: no cover - exchange/network dependent
                 logger.exception("Failed to place native SL/TP orders for %s; falling back to polling.", symbol)
 
@@ -62,15 +63,35 @@ class CCXTBroker(Broker):
         self.fills.append(Fill(symbol, side, amount, fill_price, ts, reason="entry"))
         return position
 
-    def _place_protective_orders(self, symbol: str, side: Side, amount: float, stop_loss: float, take_profit: float) -> None:
+    def _place_protective_orders(self, symbol: str, side: Side, amount: float, stop_loss: float, take_profit: float) -> list[str]:
         close_side = "sell" if side == Side.LONG else "buy"
-        self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params={"stopLossPrice": stop_loss, "reduceOnly": True})
-        self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params={"takeProfitPrice": take_profit, "reduceOnly": True})
+        sl_order = self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params={"stopLossPrice": stop_loss, "reduceOnly": True})
+        tp_order = self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params={"takeProfitPrice": take_profit, "reduceOnly": True})
+        return [order_id for order_id in (sl_order.get("id"), tp_order.get("id")) if order_id]
+
+    def _cancel_protective_orders(self, symbol: str) -> None:
+        """Cancel whichever of the SL/TP bracket orders didn't trigger.
+
+        The two orders placed in ``_place_protective_orders`` are
+        independent conditional orders, not an atomic OCO pair - the
+        exchange doesn't cancel one when the other fires. Leaving the
+        untriggered sibling resting after the position closes (by either
+        order filling, or by the polling fallback in
+        ``check_stop_and_target``) orphans it on the exchange, ready to
+        fire unexpectedly against whatever position exists next.
+        """
+        order_ids = self._protective_order_ids.pop(symbol, [])
+        for order_id in order_ids:
+            try:
+                self.exchange.cancel_order(order_id, symbol)
+            except Exception:  # pragma: no cover - exchange/network dependent; already filled/cancelled orders error here
+                logger.debug("Could not cancel protective order %s for %s (likely already filled or cancelled).", order_id, symbol)
 
     def close_position(self, symbol: str, price: float, ts: pd.Timestamp, reason: str = "manual_close") -> Fill | None:
         position = self._positions.pop(symbol, None)
         if position is None:
             return None
+        self._cancel_protective_orders(symbol)
         close_side = "sell" if position.side == Side.LONG else "buy"
         order = self.exchange.create_order(symbol, type="market", side=close_side, amount=position.amount, params={"reduceOnly": True})
         fill_price = float(order.get("average") or order.get("price") or price)
