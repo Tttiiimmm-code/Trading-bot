@@ -1,0 +1,39 @@
+# Copy this file to config/config.yaml and adjust. config.yaml is
+# git-ignored so your API keys never get committed.
+
+exchange:
+  id: binance            # any ccxt exchange id, e.g. binance, bybit, kraken, binanceusdm
+  sandbox: true           # use the exchange's testnet - keep true until you trust the bot
+  # API keys are read from environment variables, NOT from this file:
+  #   EXCHANGE_API_KEY / EXCHANGE_API_SECRET (see .env.example)
+
+market:
+  symbol: "BTC/USDT"
+  timeframe: "15m"
+
+strategy:
+  swing_left: 2
+  swing_right: 2
+  liquidity_tolerance_pct: 0.05
+  liquidity_min_touches: 2
+  sweep_lookback_bars: 10
+  min_risk_reward: 2.0
+  require_kill_zone: true
+  require_ote: true
+  ote_low_ratio: 0.618
+  ote_high_ratio: 0.79
+
+risk:
+  risk_per_trade_pct: 1.0
+  max_daily_loss_pct: 3.0
+  max_open_positions: 1
+
+backtest:
+  starting_balance: 10000
+  window_size: 300
+  pending_order_expiry_bars: 8
+  history_bars: 5000
+
+live:
+  poll_interval_seconds: 30
+  use_native_sl_tp: true
