@@ -85,7 +85,7 @@ def cmd_live(args: argparse.Namespace) -> None:
     if args.mode == "live":
         if not config.exchange.sandbox:
             logger.warning("LIVE mode with sandbox=false: this will place REAL orders with REAL funds on %s.", config.exchange.id)
-        broker = CCXTBroker(exchange, use_native_sl_tp=config.live.use_native_sl_tp)
+        broker = CCXTBroker(exchange, symbol, use_native_sl_tp=config.live.use_native_sl_tp)
     else:
         starting_balance = config.backtest.starting_balance
         logger.info("Paper trading mode: simulated balance %.2f", starting_balance)

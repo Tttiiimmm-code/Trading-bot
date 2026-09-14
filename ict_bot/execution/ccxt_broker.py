@@ -22,15 +22,20 @@ logger = logging.getLogger(__name__)
 
 
 class CCXTBroker(Broker):
-    def __init__(self, exchange: ccxt.Exchange, use_native_sl_tp: bool = True):
+    def __init__(self, exchange: ccxt.Exchange, symbol: str, use_native_sl_tp: bool = True):
         self.exchange = exchange
+        # Balance must be read in the *quote* currency of the traded pair
+        # (e.g. "USDT" for BTC/USDT, "EUR" for BTC/EUR) - hardcoding a
+        # single currency here would silently size positions off the wrong
+        # (or a missing, zeroed) balance for any other market.symbol.
+        self.quote_currency = symbol.split("/")[1]
         self.use_native_sl_tp = use_native_sl_tp
         self._positions: dict[str, Position] = {}
         self.fills: list[Fill] = []
 
     def get_balance(self) -> float:
         balance = self.exchange.fetch_balance()
-        quote = balance.get("USDT", balance.get("total", {}))
+        quote = balance.get(self.quote_currency, {})
         if isinstance(quote, dict):
             return float(quote.get("free", 0.0))
         return float(quote or 0.0)
