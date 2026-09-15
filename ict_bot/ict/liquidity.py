@@ -51,8 +51,13 @@ def find_liquidity_pools(
     other into equal-high / equal-low liquidity pools.
     """
     swings = find_swing_points(df, left=left, right=right)
-    highs = [(df.index[i], float(df["high"].iloc[i])) for i in range(len(df)) if swings["swing_high"].iloc[i]]
-    lows = [(df.index[i], float(df["low"].iloc[i])) for i in range(len(df)) if swings["swing_low"].iloc[i]]
+    high_mask = swings["swing_high"].to_numpy()
+    low_mask = swings["swing_low"].to_numpy()
+    index = df.index
+    high_values = df["high"].to_numpy()
+    low_values = df["low"].to_numpy()
+    highs = [(index[i], float(high_values[i])) for i in high_mask.nonzero()[0]]
+    lows = [(index[i], float(low_values[i])) for i in low_mask.nonzero()[0]]
 
     pools: list[LiquidityPool] = []
     for cluster in _cluster(highs, tolerance_pct):

@@ -13,7 +13,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+import numpy as np
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 
 
 class Trend(Enum):
@@ -43,6 +45,36 @@ class StructureEvent:
     broken_swing: SwingPoint
 
 
+def swing_masks(df: pd.DataFrame, left: int = 2, right: int = 2) -> tuple[np.ndarray, np.ndarray]:
+    """Raw boolean ``(swing_high, swing_low)`` masks - the numpy core behind
+    :func:`find_swing_points`, for callers that immediately work on arrays
+    anyway (this runs on every bar of a backtest, so the DataFrame wrapper
+    is worth skipping there).
+    """
+    n = len(df)
+    swing_high = np.zeros(n, dtype=bool)
+    swing_low = np.zeros(n, dtype=bool)
+    highs = df["high"].to_numpy()
+    lows = df["low"].to_numpy()
+
+    span = left + right + 1
+    if n >= span:
+        # Sliding windows of length `span`; window w sits over bars
+        # [w, w + span), so its centre bar is w + left.
+        high_windows = sliding_window_view(highs, span)
+        low_windows = sliding_window_view(lows, span)
+        centre_highs = highs[left : n - right]
+        centre_lows = lows[left : n - right]
+        # Strictly greater than every other bar in the window == it is the
+        # max and no other bar ties it.
+        swing_high[left : n - right] = (high_windows == centre_highs[:, None]).sum(axis=1) == 1
+        swing_high[left : n - right] &= centre_highs == high_windows.max(axis=1)
+        swing_low[left : n - right] = (low_windows == centre_lows[:, None]).sum(axis=1) == 1
+        swing_low[left : n - right] &= centre_lows == low_windows.min(axis=1)
+
+    return swing_high, swing_low
+
+
 def find_swing_points(df: pd.DataFrame, left: int = 2, right: int = 2) -> pd.DataFrame:
     """Detect fractal swing highs/lows.
 
@@ -55,20 +87,7 @@ def find_swing_points(df: pd.DataFrame, left: int = 2, right: int = 2) -> pd.Dat
     ``i + right`` has closed - callers doing live/streaming detection must
     respect that lag to avoid look-ahead bias.
     """
-    n = len(df)
-    swing_high = [False] * n
-    swing_low = [False] * n
-    highs = df["high"].to_numpy()
-    lows = df["low"].to_numpy()
-
-    for i in range(left, n - right):
-        window_high = highs[i - left : i + right + 1]
-        if highs[i] == window_high.max() and (window_high == highs[i]).sum() == 1:
-            swing_high[i] = True
-        window_low = lows[i - left : i + right + 1]
-        if lows[i] == window_low.min() and (window_low == lows[i]).sum() == 1:
-            swing_low[i] = True
-
+    swing_high, swing_low = swing_masks(df, left=left, right=right)
     return pd.DataFrame({"swing_high": swing_high, "swing_low": swing_low}, index=df.index)
 
 
@@ -79,14 +98,23 @@ def detect_structure(df: pd.DataFrame, left: int = 2, right: int = 2) -> list[St
     Uses candle ``close`` (not wick) to confirm a break, which is the
     common ICT convention for structure breaks.
     """
-    swings = find_swing_points(df, left=left, right=right)
-    closes = df["close"]
+    # Scalar access on numpy arrays rather than pandas objects inside the
+    # loop: this runs on every bar of every backtest window, and pandas'
+    # per-element overhead dominated the whole backtest otherwise.
+    swing_high_flags, swing_low_flags = swing_masks(df, left=left, right=right)
+    highs = df["high"].to_numpy()
+    lows = df["low"].to_numpy()
+    closes = df["close"].to_numpy()
+    index = df.index
 
     events: list[StructureEvent] = []
 
     trend = Trend.UNKNOWN
-    last_high: SwingPoint | None = None
-    last_low: SwingPoint | None = None
+    # Tracked as bar offsets rather than SwingPoint objects: materialising a
+    # Timestamp per bar dominated the loop, and only the (rare) bars that
+    # actually emit an event need one.
+    last_high_i: int | None = None
+    last_low_i: int | None = None
 
     for i in range(len(df)):
         # register newly confirmed swings at bar i (a swing formed at i-right):
@@ -94,27 +122,28 @@ def detect_structure(df: pd.DataFrame, left: int = 2, right: int = 2) -> list[St
         # swing, which is standard ICT structure-tracking behaviour.
         source_i = i - right
         if source_i >= 0:
-            if swings["swing_high"].iloc[source_i]:
-                last_high = SwingPoint(df.index[source_i], float(df["high"].iloc[source_i]), "high")
-            if swings["swing_low"].iloc[source_i]:
-                last_low = SwingPoint(df.index[source_i], float(df["low"].iloc[source_i]), "low")
+            if swing_high_flags[source_i]:
+                last_high_i = source_i
+            if swing_low_flags[source_i]:
+                last_low_i = source_i
 
-        price = float(closes.iloc[i])
-        ts = df.index[i]
+        price = float(closes[i])
 
-        if last_high is not None and price > last_high.price:
+        if last_high_i is not None and price > float(highs[last_high_i]):
             new_trend = Trend.BULLISH
             event_type = EventType.CHOCH if trend == Trend.BEARISH else EventType.BOS
-            events.append(StructureEvent(ts, price, event_type, new_trend, last_high))
+            broken = SwingPoint(index[last_high_i], float(highs[last_high_i]), "high")
+            events.append(StructureEvent(index[i], price, event_type, new_trend, broken))
             trend = new_trend
-            last_high = None  # consumed; wait for the next fresh swing high to form
+            last_high_i = None  # consumed; wait for the next fresh swing high to form
 
-        if last_low is not None and price < last_low.price:
+        if last_low_i is not None and price < float(lows[last_low_i]):
             new_trend = Trend.BEARISH
             event_type = EventType.CHOCH if trend == Trend.BULLISH else EventType.BOS
-            events.append(StructureEvent(ts, price, event_type, new_trend, last_low))
+            broken = SwingPoint(index[last_low_i], float(lows[last_low_i]), "low")
+            events.append(StructureEvent(index[i], price, event_type, new_trend, broken))
             trend = new_trend
-            last_low = None  # consumed; wait for the next fresh swing low to form
+            last_low_i = None  # consumed; wait for the next fresh swing low to form
 
     return events
 
