@@ -28,10 +28,12 @@ from enum import Enum
 import pandas as pd
 
 from ict_bot.ict import fvg as fvg_mod
+from ict_bot.ict import htf
 from ict_bot.ict import killzones
 from ict_bot.ict import liquidity as liq_mod
 from ict_bot.ict import order_blocks as ob_mod
 from ict_bot.ict import premium_discount as pd_mod
+from ict_bot.ict import session_levels
 from ict_bot.ict import structure
 
 
@@ -69,6 +71,22 @@ class ICTStrategyConfig:
     ote_low_ratio: float = 0.618
     ote_high_ratio: float = 0.79
     kill_zones: list[killzones.KillZone] | None = None
+    # Higher-timeframe bias: e.g. "4h" only allows longs while the 4h
+    # structure is bullish. None disables the filter entirely.
+    htf_bias_timeframe: str | None = None
+    htf_bias_allow_unknown: bool = True
+    htf_swing_left: int = 2
+    htf_swing_right: int = 2
+    # Treat previous day/week highs and lows as liquidity too, not just
+    # equal-highs/lows clusters - in ICT these are the primary pools.
+    use_session_liquidity: bool = False
+    session_liquidity_rules: tuple[str, ...] = ("1D", "1W")
+    # Where inside the entry zone the limit order rests:
+    #   "ob_midpoint"   - middle of the order block (ICT's default reading)
+    #   "fvg_ce"        - consequent encroachment, i.e. 50% of the fair value
+    #                     gap, falling back to the order block without one
+    #   "zone_midpoint" - middle of the combined OB/FVG overlap
+    entry_mode: str = "ob_midpoint"
 
 
 def _combine_entry_zone(ob: ob_mod.OrderBlock, fvg: fvg_mod.FairValueGap | None) -> tuple[float, float]:
@@ -84,6 +102,15 @@ def _combine_entry_zone(ob: ob_mod.OrderBlock, fvg: fvg_mod.FairValueGap | None)
     if top < bottom:
         return ob.top, ob.bottom  # non-overlapping OB/FVG, fall back to OB
     return top, bottom
+
+
+def _entry_price(mode: str, ob: ob_mod.OrderBlock, fvg: fvg_mod.FairValueGap | None,
+                 zone_top: float, zone_bottom: float) -> float:
+    if mode == "fvg_ce" and fvg is not None:
+        return fvg.midpoint
+    if mode == "zone_midpoint":
+        return (zone_top + zone_bottom) / 2.0
+    return ob.midpoint
 
 
 class ICTStrategy:
@@ -136,6 +163,12 @@ class ICTStrategy:
         side = Side.LONG if last_event.direction == structure.Trend.BULLISH else Side.SHORT
         direction_str = "bullish" if side == Side.LONG else "bearish"
 
+        if cfg.htf_bias_timeframe is not None:
+            bias = htf.htf_bias(df, cfg.htf_bias_timeframe, left=cfg.htf_swing_left, right=cfg.htf_swing_right)
+            if not htf.bias_allows(bias, last_event.direction, allow_unknown=cfg.htf_bias_allow_unknown):
+                note(f"{cfg.htf_bias_timeframe} bias is {bias.value}, opposing this {direction_str} setup")
+                return None
+
         pools = liq_mod.find_liquidity_pools(
             df,
             tolerance_pct=cfg.liquidity_tolerance_pct,
@@ -143,6 +176,8 @@ class ICTStrategy:
             left=cfg.swing_left,
             right=cfg.swing_right,
         )
+        if cfg.use_session_liquidity:
+            pools = pools + session_levels.reference_pools(df, rules=cfg.session_liquidity_rules)
         sweep_kind = "sell_side" if side == Side.LONG else "buy_side"
         sweep = liq_mod.recent_sweep(pools, as_of=last_ts, within_bars=cfg.sweep_lookback_bars, df=df)
         if sweep is None or sweep.kind != sweep_kind:
@@ -177,7 +212,7 @@ class ICTStrategy:
         # A take-profit must be a genuine resting liquidity target - never
         # synthesize one from min_risk_reward, or that floor would always
         # trivially pass its own check on the fabricated target.
-        entry = ob.midpoint
+        entry = _entry_price(cfg.entry_mode, ob, fvg, entry_zone_top, entry_zone_bottom)
         if side == Side.LONG:
             stop_loss = min(ob.bottom, sweep.price) * 0.999
             candidates = [p for p in pools if p.kind == "buy_side" and p.price > entry and not p.swept]
@@ -186,6 +221,13 @@ class ICTStrategy:
             stop_loss = max(ob.top, sweep.price) * 1.001
             candidates = [p for p in pools if p.kind == "sell_side" and p.price < entry and not p.swept]
             target_pool = min(candidates, key=lambda p: entry - p.price, default=None)
+
+        # The entry can sit outside the order block (an FVG's consequent
+        # encroachment is a level of its own), so the stop is not
+        # automatically on the right side of it.
+        if (side == Side.LONG and entry <= stop_loss) or (side == Side.SHORT and entry >= stop_loss):
+            note(f"entry {entry:.4f} is on the wrong side of the stop {stop_loss:.4f}")
+            return None
 
         if target_pool is None:
             note("no resting opposite liquidity pool available as a take-profit target")

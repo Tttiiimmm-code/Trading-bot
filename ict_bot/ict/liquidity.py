@@ -69,10 +69,10 @@ def find_liquidity_pools(
             level = sum(p for _, p in cluster) / len(cluster)
             pools.append(LiquidityPool(price=level, kind="sell_side", touches=tuple(t for t, _ in cluster)))
 
-    return _mark_sweeps(pools, df)
+    return mark_sweeps(pools, df)
 
 
-def _mark_sweeps(pools: list[LiquidityPool], df: pd.DataFrame) -> list[LiquidityPool]:
+def mark_sweeps(pools: list[LiquidityPool], df: pd.DataFrame) -> list[LiquidityPool]:
     result = []
     for pool in pools:
         last_touch = max(pool.touches)
