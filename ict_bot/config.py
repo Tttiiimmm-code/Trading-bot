@@ -38,6 +38,7 @@ class BacktestConfig:
 class LiveConfig:
     poll_interval_seconds: int
     use_native_sl_tp: bool
+    status_log_interval_minutes: int
 
 
 @dataclass
@@ -101,6 +102,7 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
     live = LiveConfig(
         poll_interval_seconds=l.get("poll_interval_seconds", 30),
         use_native_sl_tp=l.get("use_native_sl_tp", True),
+        status_log_interval_minutes=l.get("status_log_interval_minutes", 60),
     )
 
     return AppConfig(exchange=exchange, market=market, strategy=strategy, risk=risk, backtest=backtest, live=live)

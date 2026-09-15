@@ -92,6 +92,13 @@ Polls the exchange for new closed candles on the configured interval and
 runs the exact same strategy/risk code as the backtest, but against a
 simulated balance - nothing is sent to the exchange.
 
+Real signals can be rare (the full kill-zone/sweep/CHoCH/OTE confluence
+doesn't line up often), so every `live.status_log_interval_minutes`
+(default 60) the bot logs a `Status: no trade yet - ...` line explaining
+exactly what's currently blocking a trade (outside kill zone, no sweep
+yet, risk/reward too low, a pending order still waiting to fill, etc.) -
+so a quiet log doesn't have to mean "is this even working".
+
 ## Live trading (real orders)
 
 ```bash
