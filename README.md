@@ -139,7 +139,14 @@ through the strategy and the backtest engine.
 
 ## Known limitations
 
-- Single-timeframe structure only; no higher-timeframe bias filter.
+- The higher-timeframe bias filter derives its HTF candles by resampling
+  the trading window, so the usable HTF is bounded by `window_size`: a
+  300-bar 15m window is only ~18 4h candles, not enough to read 4h
+  structure. Raise `window_size` (at a proportional backtest cost) before
+  expecting a 4h bias to do anything.
+- SMT divergence only applies when a correlated market's data is passed to
+  `generate_signal`; the live loop fetches a single symbol, so it is
+  currently reachable from backtests/research only.
 - The backtest fill model is a simplification: a limit order fills the
   instant a future bar's range touches the entry price, and there are no
   partial fills. Fees and stop slippage *are* modelled but default to
