@@ -94,6 +94,8 @@ def cmd_live(args: argparse.Namespace) -> None:
     window = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=max(config.backtest.window_size, 100))
     pending: Signal | None = None
     pending_bars_left = 0
+    last_status_log: pd.Timestamp | None = None
+    status_interval = pd.Timedelta(minutes=config.live.status_log_interval_minutes)
 
     logger.info("Starting live loop (%s) on %s %s. Ctrl+C to stop.", args.mode, symbol, timeframe)
     while True:
@@ -130,13 +132,29 @@ def cmd_live(args: argparse.Namespace) -> None:
                         logger.info("Pending signal expired unfilled: %s", pending.reason)
                         pending = None
 
+                status_reason: str | None = None
                 if pending is None and broker.get_open_position(symbol) is None:
                     if risk_manager.can_open_trade(ts, broker.get_balance()):
-                        signal = strategy.generate_signal(window)
+                        trace: list[str] = []
+                        signal = strategy.generate_signal(window, trace=trace)
                         if signal is not None:
                             logger.info("New signal: %s entry=%.4f sl=%.4f tp=%.4f (%s)", signal.side.value, signal.entry, signal.stop_loss, signal.take_profit, signal.reason)
                             pending = signal
                             pending_bars_left = config.backtest.pending_order_expiry_bars
+                            last_status_log = ts  # something happened - restart the quiet-period clock
+                        else:
+                            status_reason = trace[-1] if trace else "no signal"
+                    else:
+                        status_reason = "blocked: daily loss limit reached or max open positions"
+                elif pending is not None:
+                    status_reason = f"pending order waiting to fill (expires in {pending_bars_left} bars): {pending.reason}"
+                else:
+                    open_position = broker.get_open_position(symbol)
+                    status_reason = f"position open: {open_position.side.value} @ {open_position.entry_price:.4f}"
+
+                if status_reason is not None and (last_status_log is None or ts - last_status_log >= status_interval):
+                    logger.info("Status: no trade yet - %s", status_reason)
+                    last_status_log = ts
 
             time.sleep(config.live.poll_interval_seconds)
         except KeyboardInterrupt:

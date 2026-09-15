@@ -2,6 +2,8 @@
 OTE overlap -> Signal. Hand-crafted so every stage of the pipeline is
 independently verifiable rather than relying on random/real market data.
 """
+import pandas as pd
+
 from ict_bot.ict.fvg import FairValueGap
 from ict_bot.ict.order_blocks import OrderBlock
 from ict_bot.strategy.ict_strategy import ICTStrategy, ICTStrategyConfig, Side, _combine_entry_zone
@@ -151,3 +153,55 @@ def test_no_signal_on_flat_data():
     df = rows_to_df(df)
     strategy = ICTStrategy()
     assert strategy.generate_signal(df) is None
+
+
+def test_trace_reports_insufficient_history():
+    df = rows_to_df(zigzag_rows([100, 105], bars_per_leg=2))
+    trace: list[str] = []
+    assert ICTStrategy().generate_signal(df, trace=trace) is None
+    assert len(trace) == 1
+    assert "not enough bar history" in trace[0]
+
+
+def test_trace_reports_outside_kill_zone():
+    df = _long_setup_df()
+    shifted = df.copy()
+    shifted.index = pd.date_range("2024-01-01 17:45", periods=len(df), freq="15min", tz="UTC")
+    strategy = ICTStrategy(ICTStrategyConfig(require_kill_zone=True, require_ote=True, min_risk_reward=1.0))
+    trace: list[str] = []
+    assert strategy.generate_signal(shifted, trace=trace) is None
+    assert trace == ["outside the configured kill zone"]
+
+
+def test_trace_reports_no_structure_events():
+    # Flat data, but with enough bars to clear the minimum-history check
+    # first, so this actually exercises the "no structure" branch.
+    df = rows_to_df(zigzag_rows([100, 100], bars_per_leg=25, epsilon=0.0))
+    strategy = ICTStrategy(ICTStrategyConfig(require_kill_zone=False))
+    trace: list[str] = []
+    assert strategy.generate_signal(df, trace=trace) is None
+    assert trace == ["no market structure (BOS/CHoCH) detected yet"]
+
+
+def test_trace_reports_risk_reward_too_low():
+    df = _long_setup_df()
+    strict = ICTStrategy(ICTStrategyConfig(require_kill_zone=False, require_ote=True, min_risk_reward=5.0))
+    trace: list[str] = []
+    assert strict.generate_signal(df, trace=trace) is None
+    assert len(trace) == 1
+    assert "risk/reward" in trace[0] and "below configured minimum 5.00" in trace[0]
+
+
+def test_trace_stays_empty_when_signal_found():
+    df = _long_setup_df()
+    strategy = ICTStrategy(ICTStrategyConfig(require_kill_zone=True, require_ote=True, min_risk_reward=1.0))
+    trace: list[str] = []
+    signal = strategy.generate_signal(df, trace=trace)
+    assert signal is not None
+    assert trace == []
+
+
+def test_trace_defaults_to_none_without_error():
+    df = _long_setup_df()
+    strategy = ICTStrategy(ICTStrategyConfig(require_kill_zone=True, require_ote=True, min_risk_reward=1.0))
+    assert strategy.generate_signal(df) is not None  # no trace arg - must not raise

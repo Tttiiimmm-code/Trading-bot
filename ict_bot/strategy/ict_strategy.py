@@ -97,23 +97,41 @@ class ICTStrategy:
     def __init__(self, config: ICTStrategyConfig | None = None):
         self.config = config or ICTStrategyConfig()
 
-    def generate_signal(self, df: pd.DataFrame) -> Signal | None:
+    def generate_signal(self, df: pd.DataFrame, trace: list[str] | None = None) -> Signal | None:
+        """``trace``, if given, gets one human-readable note appended
+        explaining exactly which confluence stage blocked a signal (or
+        nothing appended if a signal was produced) - purely for
+        observability (e.g. an hourly "why no trade yet" status log), it
+        never affects the returned :class:`Signal`.
+        """
+
+        def note(msg: str) -> None:
+            if trace is not None:
+                trace.append(msg)
+
         cfg = self.config
         min_len = max(20, cfg.swing_left + cfg.swing_right + 5)
         if len(df) < min_len:
+            note(f"not enough bar history ({len(df)} < {min_len} required)")
             return None
 
         last_ts = df.index[-1]
         zones = cfg.kill_zones if cfg.kill_zones is not None else killzones.DEFAULT_KILL_ZONES
         if cfg.require_kill_zone and not killzones.is_in_kill_zone(last_ts, zones):
+            note("outside the configured kill zone")
             return None
 
         events = structure.detect_structure(df, left=cfg.swing_left, right=cfg.swing_right)
         if not events:
+            note("no market structure (BOS/CHoCH) detected yet")
             return None
         last_event = events[-1]
-        if last_event.index != last_ts or last_event.event != structure.EventType.CHOCH:
+        if last_event.index != last_ts:
+            note("no structure event confirmed on the latest bar")
             return None  # only trade fresh reversals confirmed on this exact bar
+        if last_event.event != structure.EventType.CHOCH:
+            note("latest structure event is a BOS (trend continuation), not a fresh CHoCH reversal")
+            return None
 
         side = Side.LONG if last_event.direction == structure.Trend.BULLISH else Side.SHORT
         direction_str = "bullish" if side == Side.LONG else "bearish"
@@ -128,11 +146,13 @@ class ICTStrategy:
         sweep_kind = "sell_side" if side == Side.LONG else "buy_side"
         sweep = liq_mod.recent_sweep(pools, as_of=last_ts, within_bars=cfg.sweep_lookback_bars, df=df)
         if sweep is None or sweep.kind != sweep_kind:
+            note(f"no matching {sweep_kind} liquidity sweep within the last {cfg.sweep_lookback_bars} bars")
             return None
 
         obs = ob_mod.detect_order_blocks(df, events)
         candidate_obs = [o for o in obs if o.direction == direction_str and o.broken_at == last_event.index]
         if not candidate_obs:
+            note("no order block found for this CHoCH's displacement leg")
             return None
         ob = candidate_obs[-1]
 
@@ -151,6 +171,7 @@ class ICTStrategy:
         entry_zone_top, entry_zone_bottom = _combine_entry_zone(ob, fvg)
 
         if cfg.require_ote and not (ote.bottom <= entry_zone_top and ote.top >= entry_zone_bottom):
+            note("order block/FVG entry zone does not overlap the OTE (61.8%-79%) retracement")
             return None
 
         # A take-profit must be a genuine resting liquidity target - never
@@ -167,6 +188,7 @@ class ICTStrategy:
             target_pool = min(candidates, key=lambda p: entry - p.price, default=None)
 
         if target_pool is None:
+            note("no resting opposite liquidity pool available as a take-profit target")
             return None
         take_profit = target_pool.price
 
@@ -179,5 +201,6 @@ class ICTStrategy:
             reason=f"{sweep.kind} liquidity sweep -> CHoCH -> {direction_str} order block entry",
         )
         if signal.risk_reward < cfg.min_risk_reward:
+            note(f"risk/reward {signal.risk_reward:.2f} below configured minimum {cfg.min_risk_reward:.2f}")
             return None
         return signal
