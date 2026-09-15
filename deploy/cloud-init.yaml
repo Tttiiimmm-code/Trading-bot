@@ -12,6 +12,10 @@
 # Edit /opt/ict-bot/Trading-bot/config/config.yaml and
 # `systemctl restart ict-bot` to change anything - see deploy/README.md.
 #
+# Also installs the ict-bot@.service template unit, so you can run
+# additional independent instances (different symbol/timeframe) side by
+# side later - see deploy/README.md - "Running multiple instances".
+#
 # Tested against Ubuntu 24.04 LTS.
 #
 # Runs everything as root rather than a dedicated service user: providers
@@ -49,9 +53,28 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  - path: /etc/systemd/system/ict-bot@.service
+    content: |
+      [Unit]
+      Description=ICT trading bot (paper mode) - instance %i
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      WorkingDirectory=/opt/ict-bot/Trading-bot
+      ExecStart=/opt/ict-bot/Trading-bot/.venv/bin/python -m ict_bot.main live --config config/config-%i.yaml --mode paper
+      Restart=always
+      RestartSec=15
+      StandardOutput=append:/var/log/ict-bot-%i.log
+      StandardError=append:/var/log/ict-bot-%i.log
+
+      [Install]
+      WantedBy=multi-user.target
+
   - path: /etc/logrotate.d/ict-bot
     content: |
-      /var/log/ict-bot.log {
+      /var/log/ict-bot*.log {
         daily
         rotate 7
         compress

@@ -1,0 +1,45 @@
+# A second, independent bot instance next to the default BTC/USDT 15m one -
+# same market, a faster timeframe (more, smaller kill-zone windows in bar
+# count, so the confluence check runs more often - not "looser", just more
+# frequent opportunities to check). Copy to config/config-btc-5m.yaml on
+# the server and start it as its own systemd instance:
+# `systemctl enable --now ict-bot@btc-5m.service`
+# (see deploy/README.md - "Running multiple instances").
+
+exchange:
+  id: binance
+  sandbox: true
+  # API keys are read from environment variables, NOT from this file:
+  #   EXCHANGE_API_KEY / EXCHANGE_API_SECRET (see .env.example)
+
+market:
+  symbol: "BTC/USDT"
+  timeframe: "5m"
+
+strategy:
+  swing_left: 2
+  swing_right: 2
+  liquidity_tolerance_pct: 0.05
+  liquidity_min_touches: 2
+  sweep_lookback_bars: 10
+  min_risk_reward: 2.0
+  require_kill_zone: true
+  require_ote: true
+  ote_low_ratio: 0.618
+  ote_high_ratio: 0.79
+
+risk:
+  risk_per_trade_pct: 1.0
+  max_daily_loss_pct: 3.0
+  max_open_positions: 1
+
+backtest:
+  starting_balance: 10000
+  window_size: 300
+  pending_order_expiry_bars: 8
+  history_bars: 5000
+
+live:
+  poll_interval_seconds: 30
+  use_native_sl_tp: true
+  status_log_interval_minutes: 60

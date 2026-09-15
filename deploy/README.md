@@ -68,6 +68,44 @@ nano /opt/ict-bot/Trading-bot/config/config.yaml
 systemctl restart ict-bot
 ```
 
+## Running multiple instances
+
+Instead of loosening one bot's entry criteria to trade more often (which
+trades away signal quality - see the project README's "known
+limitations"), run several independent instances side by side: different
+markets and/or timeframes, each with its own simulated balance, own risk
+tracking, own log file. One instance crashing or hitting its daily loss
+limit never affects the others.
+
+The [`ict-bot@.service`](./ict-bot@.service) systemd template unit (`%i`
+is the instance name) makes this a config file plus two commands. Two
+ready-made examples ship in `config/`:
+[`config-ethusdt.example.yaml`](../config/config-ethusdt.example.yaml)
+(same settings, ETH/USDT instead of BTC/USDT) and
+[`config-btc-5m.example.yaml`](../config/config-btc-5m.example.yaml)
+(same market, 5m instead of 15m).
+
+```bash
+cd /opt/ict-bot/Trading-bot
+cp config/config-ethusdt.example.yaml config/config-ethusdt.yaml
+systemctl enable --now ict-bot@ethusdt.service
+systemctl status ict-bot@ethusdt.service
+tail -f /var/log/ict-bot-ethusdt.log
+```
+
+The instance name (`ethusdt` above) just has to match between the config
+filename (`config-<name>.yaml`) and the service name (`ict-bot@<name>`) -
+pick whatever name describes it. Repeat for any other market/timeframe
+you want to add (e.g. `config-btc-5m.yaml` -> `ict-bot@btc-5m.service`).
+Each instance is fully independent of the original `ict-bot.service` and
+of each other.
+
+Stopping one instance:
+```bash
+systemctl stop ict-bot@ethusdt.service
+systemctl disable ict-bot@ethusdt.service
+```
+
 ## Stopping it
 
 ```bash

@@ -1,0 +1,16 @@
+[Unit]
+Description=ICT trading bot (paper mode) - instance %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ict-bot/Trading-bot
+ExecStart=/opt/ict-bot/Trading-bot/.venv/bin/python -m ict_bot.main live --config config/config-%i.yaml --mode paper
+Restart=always
+RestartSec=15
+StandardOutput=append:/var/log/ict-bot-%i.log
+StandardError=append:/var/log/ict-bot-%i.log
+
+[Install]
+WantedBy=multi-user.target
