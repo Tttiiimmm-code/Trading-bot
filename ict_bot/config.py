@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import yaml
 from dotenv import load_dotenv
 
-from ict_bot.ict.killzones import DEFAULT_KILL_ZONES
+from ict_bot.ict.killzones import KILL_ZONE_PRESETS
 from ict_bot.strategy.ict_strategy import ICTStrategyConfig
 from ict_bot.strategy.risk import RiskConfig
 
@@ -51,6 +51,14 @@ class AppConfig:
     live: LiveConfig
 
 
+def _kill_zones(preset: str) -> list:
+    try:
+        return KILL_ZONE_PRESETS[preset]
+    except KeyError:
+        valid = ", ".join(sorted(KILL_ZONE_PRESETS))
+        raise ValueError(f"unknown kill_zone_preset {preset!r}; expected one of: {valid}") from None
+
+
 def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> AppConfig:
     if os.path.exists(env_path):
         load_dotenv(env_path)
@@ -80,7 +88,14 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         require_ote=s.get("require_ote", True),
         ote_low_ratio=s.get("ote_low_ratio", 0.618),
         ote_high_ratio=s.get("ote_high_ratio", 0.79),
-        kill_zones=DEFAULT_KILL_ZONES,
+        kill_zones=_kill_zones(s.get("kill_zone_preset", "default")),
+        htf_bias_timeframe=s.get("htf_bias_timeframe"),
+        htf_bias_allow_unknown=s.get("htf_bias_allow_unknown", True),
+        htf_swing_left=s.get("htf_swing_left", 2),
+        htf_swing_right=s.get("htf_swing_right", 2),
+        use_session_liquidity=s.get("use_session_liquidity", False),
+        session_liquidity_rules=tuple(s.get("session_liquidity_rules", ("1D", "1W"))),
+        entry_mode=s.get("entry_mode", "ob_midpoint"),
     )
 
     r = raw.get("risk", {})

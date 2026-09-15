@@ -22,6 +22,21 @@ strategy:
   require_ote: true
   ote_low_ratio: 0.618
   ote_high_ratio: 0.79
+  # Which session windows count as kill zones:
+  #   default       - asian / london / ny_am / london_close
+  #   silver_bullet - ICT's narrow one-hour windows (far fewer setups)
+  #   london_ny     - london + ny_am only
+  kill_zone_preset: "default"
+  # Higher-timeframe bias filter, e.g. "4h" to only take longs while the
+  # 4h structure is bullish. Leave unset/null to disable.
+  # htf_bias_timeframe: "4h"
+  # Also treat previous day/week highs and lows (PDH/PDL, PWH/PWL) as
+  # liquidity, not just equal-highs/lows clusters.
+  use_session_liquidity: false
+  # Where the limit order rests in the entry zone: ob_midpoint | fvg_ce |
+  # zone_midpoint ("fvg_ce" = the fair value gap's 50%, ICT's consequent
+  # encroachment).
+  entry_mode: "ob_midpoint"
 
 risk:
   risk_per_trade_pct: 1.0
