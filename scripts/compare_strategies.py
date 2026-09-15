@@ -19,6 +19,13 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import sys
+from pathlib import Path
+
+# Make the repo root importable regardless of the current working directory
+# or how this script is invoked (`python scripts/compare_strategies.py`
+# only puts `scripts/` on sys.path, not the repo root where `ict_bot` lives).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 
