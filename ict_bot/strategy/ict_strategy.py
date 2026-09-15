@@ -34,6 +34,7 @@ from ict_bot.ict import liquidity as liq_mod
 from ict_bot.ict import order_blocks as ob_mod
 from ict_bot.ict import premium_discount as pd_mod
 from ict_bot.ict import session_levels
+from ict_bot.ict import smt
 from ict_bot.ict import structure
 
 
@@ -87,6 +88,10 @@ class ICTStrategyConfig:
     #                     gap, falling back to the order block without one
     #   "zone_midpoint" - middle of the combined OB/FVG overlap
     entry_mode: str = "ob_midpoint"
+    # SMT divergence against a correlated market. Only applies when a
+    # correlated frame is actually passed to generate_signal().
+    require_smt: bool = False
+    smt_allow_unknown: bool = True
 
 
 def _combine_entry_zone(ob: ob_mod.OrderBlock, fvg: fvg_mod.FairValueGap | None) -> tuple[float, float]:
@@ -124,7 +129,8 @@ class ICTStrategy:
     def __init__(self, config: ICTStrategyConfig | None = None):
         self.config = config or ICTStrategyConfig()
 
-    def generate_signal(self, df: pd.DataFrame, trace: list[str] | None = None) -> Signal | None:
+    def generate_signal(self, df: pd.DataFrame, trace: list[str] | None = None,
+                        correlated: pd.DataFrame | None = None) -> Signal | None:
         """``trace``, if given, gets one human-readable note appended
         explaining exactly which confluence stage blocked a signal (or
         nothing appended if a signal was produced) - purely for
@@ -162,6 +168,12 @@ class ICTStrategy:
 
         side = Side.LONG if last_event.direction == structure.Trend.BULLISH else Side.SHORT
         direction_str = "bullish" if side == Side.LONG else "bearish"
+
+        if cfg.require_smt and correlated is not None:
+            divergence = smt.smt_divergence(df, correlated, left=cfg.swing_left, right=cfg.swing_right)
+            if not smt.smt_confirms(divergence, last_event.direction, allow_unknown=cfg.smt_allow_unknown):
+                note(f"no SMT divergence supporting this {direction_str} setup (read: {divergence.value})")
+                return None
 
         if cfg.htf_bias_timeframe is not None:
             bias = htf.htf_bias(df, cfg.htf_bias_timeframe, left=cfg.htf_swing_left, right=cfg.htf_swing_right)
