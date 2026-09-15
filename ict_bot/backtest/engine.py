@@ -26,6 +26,8 @@ class BacktestConfig:
     starting_balance: float = 10_000.0
     window_size: int = 300
     pending_order_expiry_bars: int = 8
+    fee_pct: float = 0.0  # per side, % of notional
+    stop_slippage_pct: float = 0.0  # applied to stop-loss exits only
 
 
 @dataclass
@@ -47,7 +49,11 @@ class BacktestEngine:
         self.strategy = strategy
         self.risk_manager = risk_manager
         self.config = config or BacktestConfig()
-        self.broker = PaperBroker(self.config.starting_balance)
+        self.broker = PaperBroker(
+            self.config.starting_balance,
+            fee_pct=self.config.fee_pct,
+            stop_slippage_pct=self.config.stop_slippage_pct,
+        )
 
     def run(self) -> BacktestResult:
         cfg = self.config

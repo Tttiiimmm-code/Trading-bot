@@ -45,6 +45,13 @@ risk:
 
 backtest:
   starting_balance: 10000
+  # Trading costs. These matter much more than they look: the strategy's
+  # stop sits just beyond a swept level, so the risked distance is often a
+  # few tenths of a percent of price - a round trip at 0.05% per side can
+  # eat a large share of what you risked per trade. Set these to your
+  # exchange's real numbers before believing any backtest.
+  fee_pct: 0.0            # per side, % of notional (e.g. 0.05 for 5 bps)
+  stop_slippage_pct: 0.0  # extra adverse move on stop-outs, % of price
   window_size: 300
   pending_order_expiry_bars: 8
   history_bars: 5000

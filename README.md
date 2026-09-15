@@ -41,8 +41,12 @@ Every step is tunable (or can be disabled) via `ICTStrategyConfig` in
 
 ```
 ict_bot/
-  ict/            Pure detectors: structure, fvg, order_blocks, liquidity,
-                   killzones, premium_discount - each independently testable.
+  ict/            Pure detectors, each independently testable:
+                   structure (BOS/CHoCH), fvg, order_blocks, liquidity,
+                   killzones, premium_discount (OTE), htf (higher-timeframe
+                   bias), session_levels (PDH/PDL/PWH/PWL + opens),
+                   breakers, opening_gaps (NDOG/NWOG), smt (divergence
+                   against a correlated market).
   strategy/       ict_strategy.py wires the detectors into entry signals;
                    risk.py does position sizing + daily loss circuit breaker.
   data/           OHLCV fetching via ccxt, or from a local CSV.
@@ -50,9 +54,17 @@ ict_bot/
   backtest/       Bar-by-bar backtest engine + performance metrics.
   config.py       Loads config/config.yaml (+ .env for API keys).
   main.py         CLI entry point (backtest / live).
+scripts/          compare_strategies.py: train/test comparison of strategy
+                   variants against real history.
+deploy/           cloud-init + systemd units for running it on a VPS.
 tests/            pytest suite, including a hand-crafted end-to-end
                    confluence scenario (sweep -> CHoCH -> OB -> OTE -> Signal).
 ```
+
+Detectors beyond the core six are **off by default** - each is a config
+flag, so enabling one is a deliberate choice you can measure rather than
+something that silently changes how the bot trades. See the commented
+options in `config/config.example.yaml`.
 
 ## Setup
 
@@ -128,9 +140,13 @@ through the strategy and the backtest engine.
 ## Known limitations
 
 - Single-timeframe structure only; no higher-timeframe bias filter.
-- The backtest fill model is a simplification (limit order fills the
-  instant a future bar's range touches the entry price - no partial
-  fills, no slippage/fees).
+- The backtest fill model is a simplification: a limit order fills the
+  instant a future bar's range touches the entry price, and there are no
+  partial fills. Fees and stop slippage *are* modelled but default to
+  zero - set `backtest.fee_pct` / `backtest.stop_slippage_pct` to your
+  exchange's real numbers, because with stops this tight they are not a
+  rounding error: at ~0.3% risk per trade, 0.05% per side is roughly a
+  third of the amount risked.
 - Live order management is intentionally minimal (market entry + best
   effort native SL/TP); it does not manage complex order lifecycles
   (partial fills, order amendment, etc).

@@ -2,6 +2,19 @@
 and evaluates stop-loss/take-profit against OHLC bars. Used for both
 backtesting and live paper trading (feeding it real-time bars but never
 touching a real exchange).
+
+Trading costs matter here far more than they look: this strategy places
+its stop just beyond a swept level, so the risked distance is often only a
+few tenths of a percent of price. A round trip at 0.05% per side then eats
+a large share of the amount risked per trade - enough to decide whether a
+small edge survives at all - so ``fee_pct`` and ``stop_slippage_pct``
+default to zero (frictionless, matching the original behaviour) but should
+be set to the exchange's real numbers for any backtest you intend to
+believe.
+
+Slippage is applied to stop-loss exits only: the entry and the take-profit
+are resting limit orders that fill at their price or not at all, while a
+stop is a market order that pays up to get out.
 """
 from __future__ import annotations
 
@@ -12,10 +25,18 @@ from ict_bot.strategy.ict_strategy import Side
 
 
 class PaperBroker(Broker):
-    def __init__(self, starting_balance: float):
+    def __init__(self, starting_balance: float, fee_pct: float = 0.0, stop_slippage_pct: float = 0.0):
         self.balance = starting_balance
+        self.fee_pct = fee_pct
+        self.stop_slippage_pct = stop_slippage_pct
+        self.fees_paid = 0.0
         self._positions: dict[str, Position] = {}
         self.fills: list[Fill] = []
+
+    def _charge_fee(self, amount: float, price: float) -> None:
+        fee = abs(amount * price) * self.fee_pct / 100.0
+        self.balance -= fee
+        self.fees_paid += fee
 
     def get_balance(self) -> float:
         return self.balance
@@ -28,6 +49,7 @@ class PaperBroker(Broker):
             raise ValueError(f"Position already open for {symbol}")
         position = Position(symbol=symbol, side=side, amount=amount, entry_price=price, stop_loss=stop_loss, take_profit=take_profit, opened_at=ts)
         self._positions[symbol] = position
+        self._charge_fee(amount, price)
         self.fills.append(Fill(symbol, side, amount, price, ts, reason="entry"))
         return position
 
@@ -35,8 +57,13 @@ class PaperBroker(Broker):
         position = self._positions.pop(symbol, None)
         if position is None:
             return None
+        if reason == "stop_loss" and self.stop_slippage_pct:
+            # Slippage always works against the position being closed.
+            drift = price * self.stop_slippage_pct / 100.0
+            price = price - drift if position.side == Side.LONG else price + drift
         pnl = self._pnl(position, price)
         self.balance += pnl
+        self._charge_fee(position.amount, price)
         fill = Fill(symbol, position.side, position.amount, price, ts, reason=reason)
         self.fills.append(fill)
         return fill

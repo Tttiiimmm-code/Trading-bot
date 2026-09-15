@@ -32,6 +32,8 @@ class BacktestConfig:
     window_size: int
     pending_order_expiry_bars: int
     history_bars: int
+    fee_pct: float
+    stop_slippage_pct: float
 
 
 @dataclass
@@ -111,6 +113,8 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         window_size=b.get("window_size", 300),
         pending_order_expiry_bars=b.get("pending_order_expiry_bars", 8),
         history_bars=b.get("history_bars", 5000),
+        fee_pct=b.get("fee_pct", 0.0),
+        stop_slippage_pct=b.get("stop_slippage_pct", 0.0),
     )
 
     l = raw.get("live", {})
