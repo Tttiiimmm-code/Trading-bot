@@ -58,6 +58,15 @@ class LiveConfig:
 
 
 @dataclass
+class PortfolioConfig:
+    # Cap on positions held across ALL instances sharing this file.
+    # 0 disables the shared cap (each instance then limits only itself).
+    max_open_positions: int
+    board_file: str
+    stale_after_minutes: float
+
+
+@dataclass
 class AppConfig:
     exchange: ExchangeConfig
     market: MarketConfig
@@ -66,6 +75,7 @@ class AppConfig:
     risk: RiskConfig
     backtest: BacktestConfig
     live: LiveConfig
+    portfolio: PortfolioConfig
     strategy_type: str = "ict"
 
 
@@ -112,6 +122,13 @@ def _validate(config: AppConfig) -> None:
         problems.append(
             f"live.bot_id is {config.live.bot_id!r}; it must be 1-{MAX_BOT_ID} characters of letters, digits, "
             f"'-' or '_'. Exchanges reject anything else in a client order id, so every order would fail")
+    if config.portfolio.max_open_positions < 0:
+        problems.append(f"portfolio.max_open_positions is {config.portfolio.max_open_positions}; "
+                        f"use 0 to disable the shared cap, never a negative number")
+    if config.portfolio.stale_after_minutes <= 0:
+        problems.append(f"portfolio.stale_after_minutes is {config.portfolio.stale_after_minutes}; "
+                        f"it must be above 0, and comfortably longer than one bar of the traded "
+                        f"timeframe or live instances would drop off the board between bars")
     if config.live.poll_interval_seconds < 1:
         problems.append(f"live.poll_interval_seconds is {config.live.poll_interval_seconds}; it must be at least 1")
 
@@ -225,6 +242,13 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         min_atr_pct=t.get("min_atr_pct", 0.0),
     )
 
+    pf = raw.get("portfolio", {})
+    portfolio = PortfolioConfig(
+        max_open_positions=int(pf.get("max_open_positions", 0)),
+        board_file=pf.get("board_file", "state/portfolio.json"),
+        stale_after_minutes=float(pf.get("stale_after_minutes", 30.0)),
+    )
+
     r = raw.get("risk", {})
     risk = RiskConfig(
         risk_per_trade_pct=r.get("risk_per_trade_pct", 1.0),
@@ -259,6 +283,6 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
     )
 
     config = AppConfig(exchange=exchange, market=market, strategy=strategy, trend=trend, risk=risk,
-                       backtest=backtest, live=live, strategy_type=strategy_type)
+                       backtest=backtest, live=live, portfolio=portfolio, strategy_type=strategy_type)
     _validate(config)
     return config
