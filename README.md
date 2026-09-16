@@ -260,6 +260,54 @@ know how much of that range came after the fill):
 
 A 3% haircut on the edge. Worth knowing, not worth restructuring for.
 
+### A filter that would have inverted the edge
+
+A third party added an "M1-RSI spike filter" to the same friend's bot after
+one losing trade whose 1-minute RSI read 80.6 at entry: block longs when
+short-term RSI is above 65, shorts when it is below 35. Don't buy the top
+of a spike.
+
+Asked of 4,050 trades instead of three (`scripts/eval_entry_rsi.py`), the
+effect runs the other way here:
+
+| long entries, RSI on the entry bar | trades | WR | mean per trade | t |
+|---|---|---|---|---|
+| RSI 50-59 | 381 | 20.7% | **-0.308R** | -2.74 |
+| RSI 60-64 | 567 | 30.7% | -0.037R | -0.49 |
+| RSI 65-69 | 571 | 40.3% | +0.227R | 3.38 |
+| RSI 70-79 | 530 | 51.1% | +0.554R | 7.24 |
+| RSI 80-100 | 90 | 55.6% | **+0.942R** | 3.74 |
+
+Applying their rule to this strategy would block the 1,191 trades that
+made +0.426R each and keep the 979 that lost -0.162R each. Shorts mirror
+it exactly. The correlation between entry RSI and result is +0.205 for
+longs and -0.162 for shorts: the more stretched the entry, the better the
+trade.
+
+That is not a contradiction of their filter, it is the difference between
+two kinds of strategy. Theirs buys a *pullback* inside a trend, so an
+overheated entry means the pullback never happened. This one buys a
+*breakout*, where an overheated reading is the signal working. A filter is
+only meaningful relative to what the strategy is trying to catch.
+
+**And the obvious conclusion from that table is wrong too.** Turning it
+into a rule - only take longs above RSI 60 - recovers almost nothing:
+
+| | trades | mean per trade | quarter-clustered t | equity |
+|---|---|---|---|---|
+| no gate | 4,050 | +0.169R | 4.56 | 208,726 |
+| long >= 60, short <= 40 | 3,974 | +0.166R | 5.07 | 205,302 |
+| long >= 65, short <= 35 | 3,381 | +0.164R | 4.86 | 182,507 |
+| long >= 70, short <= 30 | 2,336 | +0.155R | 4.01 | 152,880 |
+
+The gate at 60 removes 76 trades, not the 412 the buckets suggested,
+because the entry happens a bar *after* the signal: a breakout that
+immediately pulls back has a high RSI when the signal fires and a low one
+when the order fills. The bucketed table is measuring which trades turned
+against us straight away, which is only knowable once you are already in.
+Information that exists only at fill time is not information you can
+trade on.
+
 ### Intermarket divergence
 
 Ported from a friend's Gold/Silver MT5 bot: two markets that normally move
