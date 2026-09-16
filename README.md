@@ -290,8 +290,42 @@ competing for the same capital, 0.5% risked per trade:
 | 29 markets | 10 | 55.9% | -45.6% | 1.22 |
 
 More return *and* a smaller drawdown, from the same strategy with no new
-parameters. That is diversification doing what it is supposed to do, and
-it is the only free lunch this project found.
+parameters - diversification doing what it is supposed to do.
+
+**But only with shorts, and spot cannot short.** Repeating the same
+measurement long only, which is what a spot account actually runs:
+
+| universe | max open | CAGR | max drawdown | Sharpe |
+|---|---|---|---|---|
+| 10 markets, long+short | 5 | 33.3% | -37.5% | 1.25 |
+| 10 markets, **long only** | 5 | 18.6% | -28.4% | 0.98 |
+| 29 markets, long+short | 5 | 39.6% | -31.7% | 1.39 |
+| 29 markets, **long only** | 5 | 17.4% | **-43.1%** | **0.78** |
+
+Long only, going from 10 markets to 29 earns nothing extra and lifts the
+drawdown by half. The reason is plain once stated: without shorts,
+twenty-nine positions are not twenty-nine bets, they are one bet in
+twenty-nine pieces. The shorts were the other side that made breadth
+diversifying rather than concentrating.
+
+So the breadth result splits in two. On futures, more markets is the best
+lever available. On spot it is not - and the long-only optimum is narrow.
+Chosen on 2018-2023 and checked once on 2024-2026:
+
+| markets (long only) | cap | train Sharpe | test CAGR | test drawdown | test Sharpe |
+|---|---|---|---|---|---|
+| 3 | 3 | 0.92 | 6.0% | -16.6% | 0.56 |
+| 5 | 5 | **1.32** | 10.5% | -19.7% | 0.68 |
+| 8 | 3 | 1.24 | 11.8% | -17.1% | 0.72 |
+| 10 | 3 | 1.18 | 11.8% | -20.5% | 0.73 |
+| 15 | 5 | 1.00 | 13.3% | -32.7% | 0.58 |
+| 29 | 5 | 0.91 | 11.2% | -24.1% | 0.55 |
+
+Eight to ten markets with a shared cap of three is where long-only
+flattens out, and nothing there reaches a held-out Sharpe above 0.73 -
+against 1.54 for the same strategy allowed to short. Half the edge really
+does live on the short side, and no amount of portfolio construction
+recovers it.
 
 The cap on simultaneous positions was chosen the disciplined way - on
 2018-2023, then looked at once on 2024-2026:

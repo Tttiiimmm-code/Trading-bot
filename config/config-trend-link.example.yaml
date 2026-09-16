@@ -2,9 +2,9 @@
 # trailing exit. This is the strategy the long backtest found an edge in
 # (see "The trend strategy, measured the same way" in the README).
 #
-# Copy to config/config-trend-eth.yaml on the server and start it as its
+# Copy to config/config-trend-link.yaml on the server and start it as its
 # own systemd instance:
-#   systemctl enable --now ict-bot@trend-eth.service
+#   systemctl enable --now ict-bot@trend-link.service
 # (see deploy/README.md - "Running multiple instances").
 
 exchange:
@@ -14,7 +14,7 @@ exchange:
   #   EXCHANGE_API_KEY / EXCHANGE_API_SECRET (see .env.example)
 
 market:
-  symbol: "ETH/USDT"
+  symbol: "LINK/USDT"
   timeframe: "4h"
 
 strategy:
