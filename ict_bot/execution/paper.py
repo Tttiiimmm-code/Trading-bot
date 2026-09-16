@@ -30,11 +30,13 @@ from ict_bot.strategy.ict_strategy import Side
 
 class PaperBroker(Broker):
     def __init__(self, starting_balance: float, maker_fee_pct: float = 0.0,
-                 taker_fee_pct: float = 0.0, stop_slippage_pct: float = 0.0):
+                 taker_fee_pct: float = 0.0, stop_slippage_pct: float = 0.0,
+                 trail_on: str = "close"):
         self.balance = starting_balance
         self.maker_fee_pct = maker_fee_pct
         self.taker_fee_pct = taker_fee_pct
         self.stop_slippage_pct = stop_slippage_pct
+        self.trail_on = trail_on
         self.fees_paid = 0.0
         self._positions: dict[str, Position] = {}
         self.fills: list[Fill] = []
@@ -108,14 +110,15 @@ class PaperBroker(Broker):
         self._trail(position, bar)
         return None
 
-    @staticmethod
-    def _trail(position: Position, bar: pd.Series) -> None:
+    def _trail(self, position: Position, bar: pd.Series) -> None:
         if position.trail_distance is None:
             return
         if position.side == Side.LONG:
-            position.stop_loss = max(position.stop_loss, float(bar["high"]) - position.trail_distance)
+            reference = float(bar["high"] if self.trail_on == "high" else bar["close"])
+            position.stop_loss = max(position.stop_loss, reference - position.trail_distance)
         else:
-            position.stop_loss = min(position.stop_loss, float(bar["low"]) + position.trail_distance)
+            reference = float(bar["low"] if self.trail_on == "high" else bar["close"])
+            position.stop_loss = min(position.stop_loss, reference + position.trail_distance)
 
     @staticmethod
     def _pnl(position: Position, exit_price: float) -> float:

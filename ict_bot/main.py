@@ -63,6 +63,7 @@ def cmd_backtest(args: argparse.Namespace) -> None:
         maker_fee_pct=config.backtest.maker_fee_pct,
         taker_fee_pct=config.backtest.taker_fee_pct,
         stop_slippage_pct=config.backtest.stop_slippage_pct,
+        trail_on=config.backtest.trail_on,
     )
     engine = BacktestEngine(df, strategy, risk_manager, engine_cfg)
     result = engine.run()
@@ -124,7 +125,8 @@ def cmd_live(args: argparse.Namespace) -> None:
         if not config.exchange.sandbox:
             logger.warning("LIVE mode with sandbox=false: this will place REAL orders with REAL funds on %s.", config.exchange.id)
         broker = CCXTBroker(exchange, quote_currency=quote_currency_from_symbol(symbol),
-                            use_native_sl_tp=config.live.use_native_sl_tp, bot_id=config.live.bot_id)
+                            use_native_sl_tp=config.live.use_native_sl_tp, bot_id=config.live.bot_id,
+                            trail_on=config.backtest.trail_on)
         # On a shared account someone else's stop can close a position this
         # bot believes it controls. Say so once, loudly, rather than let it
         # look like an exit the strategy chose.
@@ -141,7 +143,8 @@ def cmd_live(args: argparse.Namespace) -> None:
         broker = PaperBroker(starting_balance,
                              maker_fee_pct=config.backtest.maker_fee_pct,
                              taker_fee_pct=config.backtest.taker_fee_pct,
-                             stop_slippage_pct=config.backtest.stop_slippage_pct)
+                             stop_slippage_pct=config.backtest.stop_slippage_pct,
+                             trail_on=config.backtest.trail_on)
 
     # Pick up where a previous process left off. Without this a restart -
     # systemd's Restart=always, a reboot, a git pull - comes back believing

@@ -29,6 +29,11 @@ class BacktestConfig:
     maker_fee_pct: float = 0.0  # entries and take-profits (resting limit orders)
     taker_fee_pct: float = 0.0  # stop-outs (crossing the spread)
     stop_slippage_pct: float = 0.0  # applied to stop-loss exits only
+    # What a trailing stop ratchets against: "close" or "high".
+    # "high" follows the bar extreme, which sounds tighter and makes the
+    # exit depend on single prints - a bad tick drags the stop to a level
+    # that never traded and books a profit at a price that never existed.
+    trail_on: str = "close"
 
 
 @dataclass
@@ -55,6 +60,7 @@ class BacktestEngine:
             maker_fee_pct=self.config.maker_fee_pct,
             taker_fee_pct=self.config.taker_fee_pct,
             stop_slippage_pct=self.config.stop_slippage_pct,
+            trail_on=self.config.trail_on,
         )
 
     def run(self) -> BacktestResult:

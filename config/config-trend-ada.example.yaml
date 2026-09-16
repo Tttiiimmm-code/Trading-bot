@@ -50,6 +50,17 @@ backtest:
   maker_fee_pct: 0.02
   taker_fee_pct: 0.05
   stop_slippage_pct: 0.02
+  # What a trailing stop ratchets against: "close" (default) or "high".
+  #
+  # "high" follows the bar extreme, which sounds tighter and makes the exit
+  # depend on single prints. Exchanges publish bad ticks - a KuCoin LTC bar
+  # in this project's data shows a high 43% above what OKX recorded for the
+  # same candle - and a false high drags the stop to a level that never
+  # traded, then books an exit there. Measured across 29 markets, that
+  # inflated the result by about a quarter; trailing on the close gives the
+  # same number whether the data is cleaned or not. See "What if the data is
+  # bad" in the README.
+  trail_on: "close"
   window_size: 400        # needs to cover regime_period plus warm-up
   pending_order_expiry_bars: 2   # 2 bars = 8 hours on this timeframe
   history_bars: 5000

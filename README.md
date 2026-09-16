@@ -655,6 +655,74 @@ This is why a grid bot's screenshots look extraordinary right up to the
 moment they stop appearing. Not dishonesty, usually: the operator's own
 statistics genuinely do look like that.
 
+## What if the data is bad
+
+Every number here rests on one exchange's tape. That is worth attacking
+rather than assuming, and attacking it changed the results.
+
+**Structure.** Across all 29 markets: no duplicate timestamps, nothing out
+of order, no bar where high < low or the close sits outside its own range,
+no non-positive prices. But there are **holes**: DASH is missing 18.5% of
+the bars its date range implies, ETC 9.2%, XLM 4.4%, VET 3.1%.
+
+**A second source.** The same eight markets pulled from OKX and compared
+candle by candle against KuCoin over 1,437 shared bars. They agree to a
+**median 0.007-0.035%** - ordinary venue spread. Except they sometimes do
+not:
+
+| | KuCoin | OKX | |
+|---|---|---|---|
+| LTC 2026-08-21 08:00, high | **74.14** | 51.53 | +43.9% |
+| LTC 2026-04-11 12:00, low | **51.77** | 54.35 | -4.7% |
+
+Those are bad prints, not market moves.
+
+**What they were worth.** Clipping any wick beyond five times the
+surrounding median bar range - a deliberately crude rule, so it cannot be
+tuned into an answer - and recomputing everything:
+
+| | trades | mean per trade | quarter-clustered t | CAGR | Sharpe |
+|---|---|---|---|---|---|
+| 8 markets, raw | 1,863 | +0.176R | 2.61 | 14.6% | 0.99 |
+| 8 markets, cleaned | 1,863 | **+0.137R** | **2.06** | 10.4% | 0.84 |
+| 29 markets, raw | 6,120 | +0.081R | 2.07 | 14.2% | 0.81 |
+| 29 markets, cleaned | 6,123 | **+0.055R** | **1.19** | 9.6% | 0.65 |
+
+**About a quarter of the measured edge was bad ticks**, and on 29 markets
+the clustered t falls below significance. Every earlier figure on this page
+was flattered by data errors.
+
+### The mechanism, and the fix
+
+The trailing stop ratcheted on the bar **high**: `stop = high - distance`.
+A false high drags the stop to a level that never traded, the next bar
+"hits" it, and the broker books an exit at a price that never existed. The
+repository's own test suite documented the pathology as expected
+behaviour: a bar spiking to 130 and closing at 97 set the stop to 125, and
+the next bar - also closing at 97 - exited at 125.
+
+Trailing on the **close** cannot be moved by a single print:
+
+| | sensitivity to cleaning | mean per trade, cleaned |
+|---|---|---|
+| trail on high | 0.038R | +0.137R |
+| **trail on close** | **0.000R** | **+0.157R** |
+
+Identical whether the data is cleaned or not, *and* better on clean data.
+The high-trail version only looked better because it was harvesting bad
+prints. `backtest.trail_on` now defaults to `"close"`; `"high"` remains
+available and is what the older figures used.
+
+### Honest headline, after all of this
+
+The trend strategy on eight markets, long only, shared cap 3, with the
+close trail: **+0.157R per trade, roughly 10% CAGR at a -19% drawdown.**
+Not the 14.6% and +0.176R quoted earlier in this project's life.
+
+And the limits that remain: one crypto venue for history (cross-checked on
+a second only for the last eight months), markets that still exist today,
+and holes in several series that no cleaning rule can fill in.
+
 ## Known limitations
 
 - The higher-timeframe bias filter derives its HTF candles by resampling
