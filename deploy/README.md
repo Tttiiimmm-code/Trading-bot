@@ -135,10 +135,18 @@ the simulated balance reset and (in live mode) a real position left open
 and no longer trailed.
 
 The trade CSV is append-only, so it is the durable record, not the log.
-Score it with the backtest's own metrics:
+
+Every trade across every instance, newest last:
 
 ```bash
 cd /opt/ict-bot/Trading-bot
+.venv/bin/python scripts/score_trades.py state/*-trades.csv --risk-pct 0.5 --list
+.venv/bin/python scripts/score_trades.py state/*-trades.csv --risk-pct 0.5 --list --last 10
+```
+
+Or the per-instance figures, without the trade-by-trade list:
+
+```bash
 .venv/bin/python scripts/score_trades.py state/config-trend-*-trades.csv --risk-pct 0.5
 ```
 
