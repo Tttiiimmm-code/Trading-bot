@@ -713,6 +713,71 @@ The high-trail version only looked better because it was harvesting bad
 prints. `backtest.trail_on` now defaults to `"close"`; `"high"` remains
 available and is what the older figures used.
 
+### A third source, with enough history to recompute
+
+OKX could only check that candles agree. Bitfinex reaches back to 2019, so
+it can check whether the *result* agrees - same strategy, same shipped
+defaults, a different exchange's tape.
+
+Candles first, every shared bar:
+
+| market | shared bars | median difference | 95th pct | >1% apart |
+|---|---|---|---|---|
+| BTC | 16,453 | 0.0235% | 0.146% | 0.17% |
+| ETH | 16,000 | 0.0302% | 0.207% | 0.25% |
+| LTC | 16,077 | 0.0878% | 0.667% | **2.41%** |
+| LINK | 13,262 | 0.1135% | 0.616% | **1.59%** |
+| SOL | 11,210 | 0.0365% | 0.201% | 0.22% |
+
+BTC and ETH are near-identical across venues. The smaller alts are not:
+LTC's two feeds disagree by more than 1% on one bar in forty. That is not
+a data error so much as a fact about thin markets - and it means a result
+resting on alt candles is softer than one resting on BTC.
+
+Then the result, both sources over the same window and the same seven
+markets, so the comparison is about the tape and nothing else:
+
+| source | trades | mean per trade | t | quarter-clustered t | 95% CI | CAGR |
+|---|---|---|---|---|---|---|
+| KuCoin (used throughout) | 1,137 | +0.095R | 1.59 | 0.48 | [-0.022, +0.212] | 1.6% |
+| **Bitfinex** | 1,171 | **+0.089R** | 1.54 | 0.63 | [-0.024, +0.202] | **7.2%** |
+
+Two things fall out, and the second matters more.
+
+**The data holds up.** +0.095R against +0.089R from independent tapes is
+as close as this kind of comparison gets. The feed is not what produced
+the edge.
+
+**But over these 5.5 years the edge is not significant on either source.**
+Quarter-clustered t of 0.48 and 0.63, intervals straddling zero on both.
+The longer study's significance comes substantially from 2018-2021, which
+this window excludes.
+
+### CAGR is not a statistic
+
+Look again at that table: near-identical trade statistics, **1.6% against
+7.2%** a year. That is not a data discrepancy, it is what compounding does
+to a slightly different ordering of the same trades under a concurrency
+cap.
+
+Resampling the shipped configuration's own 1,704 trades in blocks of
+twenty - the same trades, reordered:
+
+| percentile | CAGR |
+|---|---|
+| 5th | 2.3% |
+| 25th | 9.7% |
+| **50th** | **15.6%** |
+| 75th | 22.3% |
+| 95th | 32.9% |
+
+Range across draws: **-9.0% to +57.2%.**
+
+The 9.5% quoted below is one path out of that. So is every other CAGR in
+this README, and every CAGR in any backtest anywhere. **The per-trade mean
+and its confidence interval are the stable statistics; the headline return
+is one draw and should be read as a rough order of magnitude at best.**
+
 ### Honest headline, after all of this
 
 The trend strategy on eight markets, long only, shared cap 3, run through
