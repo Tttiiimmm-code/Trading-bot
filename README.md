@@ -583,6 +583,78 @@ single trade in the history is +34.6R - so the only way to collect it is
 to still be trading when one arrives. Size for the losing runs, not for
 the average.
 
+## Two more strategies, measured: grid and open range breakout
+
+### Open range breakout
+
+Take the high and low of the first hour after a reference time, trade the
+break, stop at the other side of the range. It comes from stocks and
+futures, where an exchange opens after hours of no trading and the first
+minutes carry real information. Eight markets, 15m bars, two years, one
+attempt per day, every variant tried:
+
+| | trades | WR | mean per trade | t |
+|---|---|---|---|---|
+| US open 13:30 UTC, 1h range, 2R | 5,935 | 38.1% | -0.077R | -4.70 |
+| UTC midnight, 30min range, 2R | 5,951 | 33.9% | -0.214R | -12.31 |
+| Europe open 08:00 UTC, 1h range, 2R | 5,950 | 37.7% | -0.059R | -3.30 |
+| US open, 1h range, 1R target | 5,935 | 49.9% | -0.085R | -6.89 |
+
+Every variant significantly negative, intervals entirely below zero. And
+the reason is one already familiar from this project:
+
+| | trades | mean per trade | t |
+|---|---|---|---|
+| before costs | 5,935 | +0.026R | 1.61 |
+| after costs | 5,935 | **-0.077R** | **-4.70** |
+
+No edge before costs, a significant loss after - exactly the ICT result,
+for exactly the ICT reason. The median opening range is **1.125% of
+price**, so the stop is narrow, so a 0.09% round trip costs **0.080R per
+trade** against **0.022R** for the trend strategy's 4.17% stop.
+
+That is now three strategies measured against the same rule. **Stop width
+against cost decides whether a strategy can work at all**, before anything
+about signal quality enters the picture. A tight stop is not a cheap stop.
+
+### Grid
+
+A grid places a ladder of buy orders below price and sell orders above.
+Price oscillates, each round trip banks a small profit, no forecast
+needed. One grid on BTC, 1% spacing, 20 levels, 10k committed, over 67
+rolling six-month windows:
+
+| | |
+|---|---|
+| windows ending in profit | **58%** |
+| median outcome | +0.8% |
+| best window | +13.9% |
+| worst window | **-45.2%** |
+| **mean of all windows** | **-4.0%** |
+
+It wins most of the time and loses money on average. That is the whole
+shape of it: many small wins funding a rare catastrophe, the exact mirror
+of trend following, which loses 63% of the time and makes money.
+
+The detail worth carrying away is what the three worst windows look like
+split in two:
+
+| realised ("earned") | unrealised (still holding) | total |
+|---|---|---|
+| +74 | -4,596 | **-4,522** |
+| +84 | -4,566 | **-4,481** |
+| +3 | -3,765 | **-3,762** |
+
+**The trade log shows nothing but wins while the account bleeds.** Every
+closed round trip was profitable. The loss sits in twenty levels of
+inventory bought on the way down and never sold, and it does not appear in
+any win-rate, profit-factor or per-trade statistic - only in the mark to
+market.
+
+This is why a grid bot's screenshots look extraordinary right up to the
+moment they stop appearing. Not dishonesty, usually: the operator's own
+statistics genuinely do look like that.
+
 ## Known limitations
 
 - The higher-timeframe bias filter derives its HTF candles by resampling
