@@ -6,7 +6,7 @@ import pandas as pd
 
 from ict_bot.ict.fvg import FairValueGap
 from ict_bot.ict.order_blocks import OrderBlock
-from ict_bot.strategy.ict_strategy import ICTStrategy, ICTStrategyConfig, Side, _combine_entry_zone
+from ict_bot.strategy.ict_strategy import ICTStrategy, ICTStrategyConfig, Side, _combine_entry_zone, _entry_price
 from tests.conftest import rows_to_df, zigzag_rows
 
 
@@ -199,6 +199,32 @@ def test_trace_stays_empty_when_signal_found():
     signal = strategy.generate_signal(df, trace=trace)
     assert signal is not None
     assert trace == []
+
+
+def test_entry_mode_ob_midpoint_is_the_default():
+    from ict_bot.strategy.ict_strategy import ICTStrategyConfig as C
+
+    assert C().entry_mode == "ob_midpoint"
+
+
+def test_entry_mode_zone_midpoint_shifts_the_entry():
+    df = _long_setup_df()
+    base = dict(require_kill_zone=True, require_ote=True, min_risk_reward=1.0)
+    default = ICTStrategy(ICTStrategyConfig(**base)).generate_signal(df)
+    zone = ICTStrategy(ICTStrategyConfig(**base, entry_mode="zone_midpoint")).generate_signal(df)
+
+    assert default is not None and zone is not None
+    # Same setup, same stop/target - only where the limit order rests moves.
+    assert zone.stop_loss == default.stop_loss
+    assert zone.take_profit == default.take_profit
+
+
+def test_entry_mode_fvg_ce_falls_back_to_order_block_without_an_fvg():
+    ob = _ob(top=110, bottom=100)
+    assert _entry_price("fvg_ce", ob, None, 110, 100) == ob.midpoint
+    assert _entry_price("fvg_ce", ob, FairValueGap(index=None, top=108, bottom=104, direction="bullish"), 108, 104) == 106.0
+    assert _entry_price("zone_midpoint", ob, None, 108, 104) == 106.0
+    assert _entry_price("ob_midpoint", ob, FairValueGap(index=None, top=108, bottom=104, direction="bullish"), 108, 104) == 105.0
 
 
 def test_trace_defaults_to_none_without_error():

@@ -18,12 +18,12 @@ import pandas as pd
 
 from ict_bot.backtest.engine import BacktestEngine, BacktestConfig as EngineBacktestConfig
 from ict_bot.backtest.metrics import compute_metrics, pair_trades
-from ict_bot.config import AppConfig, load_config
+from ict_bot.config import AppConfig, build_strategy, load_config
 from ict_bot.data.feed import fetch_ohlcv_closed, fetch_ohlcv_history, load_ohlcv_csv, make_exchange
 from ict_bot.execution.broker import Broker
 from ict_bot.execution.ccxt_broker import CCXTBroker, quote_currency_from_symbol
 from ict_bot.execution.paper import PaperBroker
-from ict_bot.strategy.ict_strategy import ICTStrategy, Signal
+from ict_bot.strategy.ict_strategy import Signal
 from ict_bot.strategy.risk import RiskManager
 from ict_bot.utils.logger import setup_logger
 
@@ -32,7 +32,7 @@ logger = setup_logger()
 
 def cmd_backtest(args: argparse.Namespace) -> None:
     config = load_config(args.config)
-    strategy = ICTStrategy(config.strategy)
+    strategy = build_strategy(config)
     risk_manager = RiskManager(config.risk)
 
     if args.csv:
@@ -57,6 +57,9 @@ def cmd_backtest(args: argparse.Namespace) -> None:
         starting_balance=config.backtest.starting_balance,
         window_size=config.backtest.window_size,
         pending_order_expiry_bars=config.backtest.pending_order_expiry_bars,
+        maker_fee_pct=config.backtest.maker_fee_pct,
+        taker_fee_pct=config.backtest.taker_fee_pct,
+        stop_slippage_pct=config.backtest.stop_slippage_pct,
     )
     engine = BacktestEngine(df, strategy, risk_manager, engine_cfg)
     result = engine.run()
@@ -74,7 +77,7 @@ def cmd_backtest(args: argparse.Namespace) -> None:
 
 def cmd_live(args: argparse.Namespace) -> None:
     config: AppConfig = load_config(args.config)
-    strategy = ICTStrategy(config.strategy)
+    strategy = build_strategy(config)
     risk_manager = RiskManager(config.risk)
     symbol = config.market.symbol
     timeframe = config.market.timeframe
@@ -89,7 +92,10 @@ def cmd_live(args: argparse.Namespace) -> None:
     else:
         starting_balance = config.backtest.starting_balance
         logger.info("Paper trading mode: simulated balance %.2f", starting_balance)
-        broker = PaperBroker(starting_balance)
+        broker = PaperBroker(starting_balance,
+                             maker_fee_pct=config.backtest.maker_fee_pct,
+                             taker_fee_pct=config.backtest.taker_fee_pct,
+                             stop_slippage_pct=config.backtest.stop_slippage_pct)
 
     window = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=max(config.backtest.window_size, 100))
     pending: Signal | None = None
@@ -97,7 +103,8 @@ def cmd_live(args: argparse.Namespace) -> None:
     last_status_log: pd.Timestamp | None = None
     status_interval = pd.Timedelta(minutes=config.live.status_log_interval_minutes)
 
-    logger.info("Starting live loop (%s) on %s %s. Ctrl+C to stop.", args.mode, symbol, timeframe)
+    logger.info("Starting live loop (%s) on %s %s using the %s strategy. Ctrl+C to stop.",
+                args.mode, symbol, timeframe, config.strategy_type)
     while True:
         try:
             latest = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=2)
@@ -119,9 +126,11 @@ def cmd_live(args: argparse.Namespace) -> None:
                     if touched and broker.get_open_position(symbol) is None:
                         amount = risk_manager.position_size(broker.get_balance(), pending.entry, pending.stop_loss)
                         if amount > 0:
-                            broker.open_position(symbol, pending.side, amount, pending.entry, pending.stop_loss, pending.take_profit, ts)
+                            broker.open_position(symbol, pending.side, amount, pending.entry, pending.stop_loss,
+                                                 pending.take_profit, ts, trail_distance=pending.trail_distance)
                             risk_manager.register_open()
-                            logger.info("Entered %s @ %.4f (SL %.4f / TP %.4f) - %s", pending.side.value, pending.entry, pending.stop_loss, pending.take_profit, pending.reason)
+                            target = f"{pending.take_profit:.4f}" if pending.take_profit is not None else "trailing"
+                            logger.info("Entered %s @ %.4f (SL %.4f / TP %s) - %s", pending.side.value, pending.entry, pending.stop_loss, target, pending.reason)
                             filled = True
                     # Match the backtest engine: a touch that couldn't be sized
                     # (e.g. balance too low) keeps the order pending until it
@@ -138,7 +147,8 @@ def cmd_live(args: argparse.Namespace) -> None:
                         trace: list[str] = []
                         signal = strategy.generate_signal(window, trace=trace)
                         if signal is not None:
-                            logger.info("New signal: %s entry=%.4f sl=%.4f tp=%.4f (%s)", signal.side.value, signal.entry, signal.stop_loss, signal.take_profit, signal.reason)
+                            tp = f"{signal.take_profit:.4f}" if signal.take_profit is not None else "trailing"
+                            logger.info("New signal: %s entry=%.4f sl=%.4f tp=%s (%s)", signal.side.value, signal.entry, signal.stop_loss, tp, signal.reason)
                             pending = signal
                             pending_bars_left = config.backtest.pending_order_expiry_bars
                             last_status_log = ts  # something happened - restart the quiet-period clock

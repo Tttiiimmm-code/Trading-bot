@@ -26,6 +26,9 @@ class BacktestConfig:
     starting_balance: float = 10_000.0
     window_size: int = 300
     pending_order_expiry_bars: int = 8
+    maker_fee_pct: float = 0.0  # entries and take-profits (resting limit orders)
+    taker_fee_pct: float = 0.0  # stop-outs (crossing the spread)
+    stop_slippage_pct: float = 0.0  # applied to stop-loss exits only
 
 
 @dataclass
@@ -47,7 +50,12 @@ class BacktestEngine:
         self.strategy = strategy
         self.risk_manager = risk_manager
         self.config = config or BacktestConfig()
-        self.broker = PaperBroker(self.config.starting_balance)
+        self.broker = PaperBroker(
+            self.config.starting_balance,
+            maker_fee_pct=self.config.maker_fee_pct,
+            taker_fee_pct=self.config.taker_fee_pct,
+            stop_slippage_pct=self.config.stop_slippage_pct,
+        )
 
     def run(self) -> BacktestResult:
         cfg = self.config
@@ -93,7 +101,8 @@ class BacktestEngine:
         amount = self.risk_manager.position_size(self.broker.get_balance(), signal.entry, signal.stop_loss)
         if amount <= 0:
             return False
-        self.broker.open_position(symbol, signal.side, amount, signal.entry, signal.stop_loss, signal.take_profit, ts)
+        self.broker.open_position(symbol, signal.side, amount, signal.entry, signal.stop_loss,
+                                  signal.take_profit, ts, trail_distance=signal.trail_distance)
         self.risk_manager.register_open()
         return True
 

@@ -85,6 +85,24 @@ ready-made examples ship in `config/`:
 [`config-btc-5m.example.yaml`](../config/config-btc-5m.example.yaml)
 (same market, 5m instead of 15m).
 
+A third example,
+[`config-trend-btc.example.yaml`](../config/config-trend-btc.example.yaml),
+runs the **trend-following** strategy on 4h bars instead of ICT. That is
+the one the long backtest found an edge in - see "The trend strategy,
+measured the same way" in the main README before choosing. Because the
+strategies share the same live loop, switching is a config file, not a
+different program:
+
+```bash
+cp config/config-trend-btc.example.yaml config/config-trend-btc.yaml
+systemctl enable --now ict-bot@trend-btc.service
+```
+
+Give each trend instance its own market (`config-trend-eth.yaml`,
+`config-trend-sol.yaml`, ...) - most of the measured return came from
+running several markets at once, since any single market spends long
+stretches without a breakout worth taking.
+
 ```bash
 cd /opt/ict-bot/Trading-bot
 cp config/config-ethusdt.example.yaml config/config-ethusdt.yaml

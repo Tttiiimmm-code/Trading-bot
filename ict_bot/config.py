@@ -7,9 +7,10 @@ from dataclasses import dataclass
 import yaml
 from dotenv import load_dotenv
 
-from ict_bot.ict.killzones import DEFAULT_KILL_ZONES
-from ict_bot.strategy.ict_strategy import ICTStrategyConfig
+from ict_bot.ict.killzones import KILL_ZONE_PRESETS
+from ict_bot.strategy.ict_strategy import ICTStrategy, ICTStrategyConfig
 from ict_bot.strategy.risk import RiskConfig
+from ict_bot.strategy.trend_strategy import TrendStrategy, TrendStrategyConfig
 
 
 @dataclass
@@ -32,6 +33,9 @@ class BacktestConfig:
     window_size: int
     pending_order_expiry_bars: int
     history_bars: int
+    maker_fee_pct: float
+    taker_fee_pct: float
+    stop_slippage_pct: float
 
 
 @dataclass
@@ -46,9 +50,34 @@ class AppConfig:
     exchange: ExchangeConfig
     market: MarketConfig
     strategy: ICTStrategyConfig
+    trend: TrendStrategyConfig
     risk: RiskConfig
     backtest: BacktestConfig
     live: LiveConfig
+    strategy_type: str = "ict"
+
+
+STRATEGY_TYPES = ("ict", "trend")
+
+
+def build_strategy(config: AppConfig):
+    """Return the strategy object the config asks for.
+
+    Both strategies expose the same ``generate_signal(df, trace=...)``
+    interface, so everything downstream - engine, brokers, live loop -
+    stays the same whichever one is selected.
+    """
+    if config.strategy_type == "trend":
+        return TrendStrategy(config.trend)
+    return ICTStrategy(config.strategy)
+
+
+def _kill_zones(preset: str) -> list:
+    try:
+        return KILL_ZONE_PRESETS[preset]
+    except KeyError:
+        valid = ", ".join(sorted(KILL_ZONE_PRESETS))
+        raise ValueError(f"unknown kill_zone_preset {preset!r}; expected one of: {valid}") from None
 
 
 def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> AppConfig:
@@ -69,6 +98,9 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
     market = MarketConfig(symbol=raw["market"]["symbol"], timeframe=raw["market"]["timeframe"])
 
     s = raw.get("strategy", {})
+    strategy_type = s.get("type", "ict")
+    if strategy_type not in STRATEGY_TYPES:
+        raise ValueError(f"unknown strategy type {strategy_type!r}; expected one of: {', '.join(STRATEGY_TYPES)}")
     strategy = ICTStrategyConfig(
         swing_left=s.get("swing_left", 2),
         swing_right=s.get("swing_right", 2),
@@ -80,7 +112,29 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         require_ote=s.get("require_ote", True),
         ote_low_ratio=s.get("ote_low_ratio", 0.618),
         ote_high_ratio=s.get("ote_high_ratio", 0.79),
-        kill_zones=DEFAULT_KILL_ZONES,
+        kill_zones=_kill_zones(s.get("kill_zone_preset", "default")),
+        htf_bias_timeframe=s.get("htf_bias_timeframe"),
+        htf_bias_allow_unknown=s.get("htf_bias_allow_unknown", True),
+        htf_swing_left=s.get("htf_swing_left", 2),
+        htf_swing_right=s.get("htf_swing_right", 2),
+        use_session_liquidity=s.get("use_session_liquidity", False),
+        session_liquidity_rules=tuple(s.get("session_liquidity_rules", ("1D", "1W"))),
+        entry_mode=s.get("entry_mode", "ob_midpoint"),
+        take_profit_mode=s.get("take_profit_mode", "liquidity"),
+        take_profit_r=s.get("take_profit_r", 2.0),
+    )
+
+    t = s.get("trend", {})
+    trend = TrendStrategyConfig(
+        entry_period=t.get("entry_period", 20),
+        exit_period=t.get("exit_period", 10),
+        atr_period=t.get("atr_period", 14),
+        atr_stop_multiple=t.get("atr_stop_multiple", 2.0),
+        trail_atr_multiple=t.get("trail_atr_multiple", 3.0),
+        regime_period=t.get("regime_period", 100),
+        allow_long=t.get("allow_long", True),
+        allow_short=t.get("allow_short", True),
+        min_atr_pct=t.get("min_atr_pct", 0.0),
     )
 
     r = raw.get("risk", {})
@@ -96,6 +150,9 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         window_size=b.get("window_size", 300),
         pending_order_expiry_bars=b.get("pending_order_expiry_bars", 8),
         history_bars=b.get("history_bars", 5000),
+        maker_fee_pct=b.get("maker_fee_pct", 0.0),
+        taker_fee_pct=b.get("taker_fee_pct", 0.0),
+        stop_slippage_pct=b.get("stop_slippage_pct", 0.0),
     )
 
     l = raw.get("live", {})
@@ -105,4 +162,5 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         status_log_interval_minutes=l.get("status_log_interval_minutes", 60),
     )
 
-    return AppConfig(exchange=exchange, market=market, strategy=strategy, risk=risk, backtest=backtest, live=live)
+    return AppConfig(exchange=exchange, market=market, strategy=strategy, trend=trend, risk=risk,
+                     backtest=backtest, live=live, strategy_type=strategy_type)

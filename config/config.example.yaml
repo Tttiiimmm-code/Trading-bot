@@ -12,6 +12,15 @@ market:
   timeframe: "15m"
 
 strategy:
+  # Which strategy the bot runs: "ict" or "trend".
+  #
+  # Measured over 2018-2026 on ten markets with realistic costs, "trend"
+  # is the one with an edge (+0.17R per trade, t=5.7); "ict" is not
+  # (-0.18R per trade after costs). See "What the backtests actually
+  # show" in the README before choosing. All the ict: keys below are
+  # ignored when type is "trend", and vice versa.
+  type: "ict"
+
   swing_left: 2
   swing_right: 2
   liquidity_tolerance_pct: 0.05
@@ -22,6 +31,49 @@ strategy:
   require_ote: true
   ote_low_ratio: 0.618
   ote_high_ratio: 0.79
+  # Which session windows count as kill zones:
+  #   default       - asian / london / ny_am / london_close
+  #   silver_bullet - ICT's narrow one-hour windows (far fewer setups)
+  #   london_ny     - london + ny_am only
+  kill_zone_preset: "default"
+  # Higher-timeframe bias filter, e.g. "4h" to only take longs while the
+  # 4h structure is bullish. Leave unset/null to disable.
+  # htf_bias_timeframe: "4h"
+  # Also treat previous day/week highs and lows (PDH/PDL, PWH/PWL) as
+  # liquidity, not just equal-highs/lows clusters.
+  use_session_liquidity: false
+  # Where the limit order rests in the entry zone: ob_midpoint | fvg_ce |
+  # zone_midpoint ("fvg_ce" = the fair value gap's 50%, ICT's consequent
+  # encroachment).
+  entry_mode: "ob_midpoint"
+  # Where the take profit goes:
+  #   liquidity - next opposing resting pool, however far that is (ICT's
+  #               "draw on liquidity"; in backtests here the median target
+  #               sat ~4R away, and most trades gave back a +1R open gain
+  #               waiting for it)
+  #   fixed_r   - a fixed multiple of the risked distance
+  #   capped    - the liquidity target, but no further than take_profit_r
+  # A fixed/capped target caps risk/reward too, so keep
+  # min_risk_reward <= take_profit_r or nothing will pass the floor.
+  take_profit_mode: "liquidity"
+  take_profit_r: 2.0
+
+  # Settings for type: "trend" - a Donchian channel breakout with an ATR
+  # stop and an ATR trailing exit. There is no fixed take profit: winners
+  # run until the trail takes them out, which is where the edge comes
+  # from. Tested on 4h bars; the defaults below are what was measured.
+  trend:
+    entry_period: 20       # break the high/low of this many prior bars
+    exit_period: 10        # unused while a trailing stop is active
+    atr_period: 14
+    atr_stop_multiple: 2.0   # initial stop, in ATRs from entry
+    trail_atr_multiple: 3.0  # trailing stop distance, in ATRs
+    regime_period: 100     # only trade with the N-bar average; 0 disables
+    allow_long: true
+    allow_short: true      # shorts carried half the measured edge - on a
+                           # spot exchange they cannot be placed at all,
+                           # so set false unless you run futures
+    min_atr_pct: 0.0       # skip markets quieter than this, % of price
 
 risk:
   risk_per_trade_pct: 1.0
@@ -30,6 +82,17 @@ risk:
 
 backtest:
   starting_balance: 10000
+  # Trading costs. These matter much more than they look: the strategy's
+  # stop sits just beyond a swept level, so the risked distance is often a
+  # few tenths of a percent of price - a round trip at 0.05% per side can
+  # eat a large share of what you risked per trade. Set these to your
+  # exchange's real numbers before believing any backtest.
+  # Entries and take-profits rest as limit orders (maker); only stop-outs
+  # cross the spread (taker). Charging everything at the taker rate roughly
+  # doubles the modelled cost, so the two are separate.
+  maker_fee_pct: 0.0      # % of notional (e.g. 0.02)
+  taker_fee_pct: 0.0      # % of notional (e.g. 0.05)
+  stop_slippage_pct: 0.0  # extra adverse move on stop-outs, % of price
   window_size: 300
   pending_order_expiry_bars: 8
   history_bars: 5000

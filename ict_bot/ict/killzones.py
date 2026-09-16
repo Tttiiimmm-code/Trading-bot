@@ -37,6 +37,29 @@ DEFAULT_KILL_ZONES: list[KillZone] = [
     KillZone("london_close", 15.0, 16.5),
 ]
 
+# ICT's "Silver Bullet": a deliberately narrow one-hour window per session
+# where he expects the algorithm to deliver an FVG entry. Much stricter
+# than the broad kill zones above - far fewer opportunities, in theory
+# higher quality.
+SILVER_BULLET_ZONES: list[KillZone] = [
+    KillZone("london_sb", 8.0, 9.0),
+    KillZone("ny_am_sb", 14.0, 15.0),
+    KillZone("ny_pm_sb", 18.0, 19.0),
+]
+
+# The two sessions ICT treats as the primary drivers, without the Asian
+# range (which he mostly uses for context/accumulation rather than entries).
+LONDON_NY_ZONES: list[KillZone] = [
+    KillZone("london", 7.0, 10.0),
+    KillZone("ny_am", 12.0, 15.0),
+]
+
+KILL_ZONE_PRESETS: dict[str, list[KillZone]] = {
+    "default": DEFAULT_KILL_ZONES,
+    "silver_bullet": SILVER_BULLET_ZONES,
+    "london_ny": LONDON_NY_ZONES,
+}
+
 
 def active_kill_zones(ts: pd.Timestamp, zones: list[KillZone] = DEFAULT_KILL_ZONES) -> list[str]:
     return [z.name for z in zones if z.contains(ts)]
