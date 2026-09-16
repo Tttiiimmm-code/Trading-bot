@@ -23,8 +23,10 @@ from ict_bot.data.feed import fetch_ohlcv_closed, fetch_ohlcv_history, load_ohlc
 from ict_bot.execution.broker import Broker
 from ict_bot.execution.ccxt_broker import CCXTBroker, quote_currency_from_symbol
 from ict_bot.execution.paper import PaperBroker
+from ict_bot.execution.state import restore_state, save_state
 from ict_bot.strategy.ict_strategy import Signal
 from ict_bot.strategy.risk import RiskManager
+from ict_bot.utils.journal import TradeJournal
 from ict_bot.utils.logger import setup_logger
 
 logger = setup_logger()
@@ -97,6 +99,23 @@ def cmd_live(args: argparse.Namespace) -> None:
                              taker_fee_pct=config.backtest.taker_fee_pct,
                              stop_slippage_pct=config.backtest.stop_slippage_pct)
 
+    # Pick up where a previous process left off. Without this a restart -
+    # systemd's Restart=always, a reboot, a git pull - comes back believing
+    # it is flat, resetting the paper balance and, live, abandoning a real
+    # open position while opening a second one.
+    journal = TradeJournal(config.live.trade_log) if config.live.trade_log else None
+    if config.live.state_file and restore_state(config.live.state_file, broker, risk_manager, symbol, args.mode):
+        if journal is not None:
+            journal.skip(len(pair_trades(broker.fills)))
+
+    def persist() -> None:
+        if config.live.state_file:
+            save_state(config.live.state_file, broker, risk_manager, symbol, args.mode)
+        if journal is not None:
+            # get_balance() is a network call on the live broker, so only
+            # reach for it when there is actually a trade to write.
+            journal.catch_up(pair_trades(broker.fills), broker.get_balance)
+
     window = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=max(config.backtest.window_size, 100))
     pending: Signal | None = None
     pending_bars_left = 0
@@ -118,6 +137,7 @@ def cmd_live(args: argparse.Namespace) -> None:
                 if fill is not None:
                     risk_manager.register_close()
                     logger.info("Position closed: %s @ %.4f (%s)", fill.side.value, fill.price, fill.reason)
+                persist()  # also captures a stop trailed by the bar just closed
 
                 if pending is not None:
                     pending_bars_left -= 1
@@ -131,6 +151,7 @@ def cmd_live(args: argparse.Namespace) -> None:
                             risk_manager.register_open()
                             target = f"{pending.take_profit:.4f}" if pending.take_profit is not None else "trailing"
                             logger.info("Entered %s @ %.4f (SL %.4f / TP %s) - %s", pending.side.value, pending.entry, pending.stop_loss, target, pending.reason)
+                            persist()
                             filled = True
                     # Match the backtest engine: a touch that couldn't be sized
                     # (e.g. balance too low) keeps the order pending until it

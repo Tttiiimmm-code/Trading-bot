@@ -125,6 +125,32 @@ systemctl status 'ict-bot*' --no-pager | grep -E 'ict-bot@|Active'
 tail -f /var/log/ict-bot-trend-*.log
 ```
 
+## Judging a paper run
+
+Each instance appends every closed trade to `state/config-<name>-trades.csv`
+and keeps its state in `state/config-<name>-state.json`. The state file is
+what makes a restart harmless - without it, systemd's `Restart=always`, a
+reboot or a `git pull` would bring the bot back believing it is flat, with
+the simulated balance reset and (in live mode) a real position left open
+and no longer trailed.
+
+The trade CSV is append-only, so it is the durable record, not the log.
+Score it with the backtest's own metrics:
+
+```bash
+cd /opt/ict-bot/Trading-bot
+.venv/bin/python scripts/score_trades.py state/config-trend-*-trades.csv --risk-pct 0.5
+```
+
+That prints win rate, profit factor, mean R and a confidence interval per
+instance, so a paper result can be held against what the backtest
+predicted instead of judged by eye. Expect the interval to straddle zero
+for a long time: at roughly 50 trades per market per year, a few weeks is
+a handful of trades, which says nothing either way. The script says so
+when that is the case.
+
+## Independence between instances
+
 The instances stay independent: each tracks its own risk and its own
 simulated balance. So three markets at 0.5% risk each can put 1.5% of a
 real account at risk simultaneously, and in paper mode the three balances

@@ -9,3 +9,4 @@ config/config*.yaml
 data/*.csv
 .pytest_cache/
 *.egg-info/
+state/

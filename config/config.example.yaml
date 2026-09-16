@@ -101,3 +101,13 @@ live:
   poll_interval_seconds: 30
   use_native_sl_tp: true
   status_log_interval_minutes: 60  # log why no trade has happened yet, at most this often
+  # Restart safety. The live loop saves its state (balance, open position
+  # incl. the trailed stop level, risk counters) after every change and
+  # reloads it on start, so a restart - systemd, a reboot, a git pull -
+  # does not come back believing it is flat. Closed trades are appended to
+  # a CSV that nothing ever rewrites; score it with
+  # `python scripts/score_trades.py <that file>`.
+  # Both default to names derived from this config's filename, so
+  # instances never share them. Set to "" to disable.
+  # state_file: "state/my-instance-state.json"
+  # trade_log: "state/my-instance-trades.csv"
