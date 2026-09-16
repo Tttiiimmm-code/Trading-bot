@@ -260,6 +260,48 @@ know how much of that range came after the fill):
 
 A 3% haircut on the edge. Worth knowing, not worth restructuring for.
 
+### Intermarket divergence
+
+Ported from a friend's Gold/Silver MT5 bot: two markets that normally move
+together, banded on the difference of their 20-bar returns at
+mean - 1.5 sigma. When the traded market has fallen behind its partner and
+then catches up, that is a long. His parameters were used unchanged - the
+honest first test of someone else's idea is their settings, not ones
+fitted to my data. Code in `ict_bot/strategy/divergence_strategy.py`,
+re-runnable via `scripts/eval_divergence.py`.
+
+**It is not wired into the live loop, and should not be run.** Here is why:
+
+| | trades | mean per trade | per-trade t | **quarter-clustered t** | profitable years |
+|---|---|---|---|---|---|
+| ETH vs BTC alone | 88 | +0.208R | 1.31 | - | - |
+| 10 pairs, long only (his design) | 744 | +0.124R | 2.31 | **-0.17** | 5/9 |
+| 10 pairs, mirrored for shorts | 1,542 | +0.097R | 2.62 | **2.70** | 8/9 |
+| *trend strategy, for comparison* | *4,050* | *+0.169R* | *5.69* | ***4.63*** | *8/9* |
+
+Three things to read out of that:
+
+1. **ETH vs BTC on its own is not evidence.** 88 trades, and the 95%
+   interval is [-0.102, +0.519] - it contains zero comfortably.
+2. **The long-only version - the one his bot actually runs - has no edge
+   here at all.** Its per-trade t of 2.31 looks respectable and is an
+   illusion: ten pairs all referenced to BTC or ETH trade *together*, so
+   counting each trade as an independent observation inflates the
+   evidence. Treating each quarter as one observation gives t = -0.17.
+   This is the single most useful number on this page for reading any
+   other: a pooled statistic over correlated positions is not what it
+   appears to be.
+3. **The mirrored version survives clustering** (t = 2.70) but is still
+   the weaker idea: it needs futures, since shorts are half of it and spot
+   cannot sell short; its quarterly returns correlate +0.38 with the trend
+   strategy, so it is not a clean diversifier; and it was found after many
+   tests on this same data, which is exactly the setting in which a t near
+   2.7 should not be trusted.
+
+None of that says the idea is bad - on Gold and Silver, two metals with a
+genuine economic link, it may well be sound. It says crypto pairs that all
+rise and fall with BTC are a different problem.
+
 ## Known limitations
 
 - The higher-timeframe bias filter derives its HTF candles by resampling
