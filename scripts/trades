@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Every trade from every instance, newest last.
+#
+#   ./scripts/trades           all of them
+#   ./scripts/trades 10        only the 10 most recent
+#   ./scripts/trades summary   per-instance figures, no trade list
+#
+# Exists because the full command is a mouthful to type on a phone, which
+# is where this repo usually gets read from.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+PYTHON=".venv/bin/python"
+[ -x "$PYTHON" ] || PYTHON="python3"
+
+shopt -s nullglob
+JOURNALS=(state/*-trades.csv)
+if [ ${#JOURNALS[@]} -eq 0 ]; then
+  echo "No trade journals yet in state/."
+  echo "Each bot writes one after its first CLOSED trade, so this stays empty"
+  echo "until a position has been opened and exited - days, not hours, on 4h bars."
+  echo
+  echo "Meanwhile, to check the bots are alive:"
+  echo "  systemctl status 'ict-bot*' --no-pager | grep -E 'ict-bot@|Active'"
+  exit 0
+fi
+
+RISK="${RISK_PCT:-0.5}"
+case "${1:-}" in
+  summary) exec "$PYTHON" scripts/score_trades.py "${JOURNALS[@]}" --risk-pct "$RISK" ;;
+  "")      exec "$PYTHON" scripts/score_trades.py "${JOURNALS[@]}" --risk-pct "$RISK" --list ;;
+  *)       exec "$PYTHON" scripts/score_trades.py "${JOURNALS[@]}" --risk-pct "$RISK" --list --last "$1" ;;
+esac

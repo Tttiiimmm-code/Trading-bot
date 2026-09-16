@@ -152,15 +152,20 @@ Every trade across every instance, newest last:
 
 ```bash
 cd /opt/ict-bot/Trading-bot
-.venv/bin/python scripts/score_trades.py state/*-trades.csv --risk-pct 0.5 --list
-.venv/bin/python scripts/score_trades.py state/*-trades.csv --risk-pct 0.5 --list --last 10
+./scripts/trades           # all of them
+./scripts/trades 10        # only the 10 most recent
+./scripts/trades summary   # per-instance figures, no trade list
 ```
 
-Or the per-instance figures, without the trade-by-trade list:
+`scripts/trades` is a wrapper around the line below, which does the same
+thing and takes any of `score_trades.py`'s options:
 
 ```bash
-.venv/bin/python scripts/score_trades.py state/config-trend-*-trades.csv --risk-pct 0.5
+.venv/bin/python scripts/score_trades.py state/*-trades.csv --risk-pct 0.5 --list
 ```
+
+Set `RISK_PCT` if the instances do not risk 0.5% per trade, e.g.
+`RISK_PCT=1.0 ./scripts/trades` - the R figures are wrong otherwise.
 
 That prints win rate, profit factor, mean R and a confidence interval per
 instance, so a paper result can be held against what the backtest
