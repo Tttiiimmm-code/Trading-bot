@@ -43,6 +43,12 @@ class LiveConfig:
     poll_interval_seconds: int
     use_native_sl_tp: bool
     status_log_interval_minutes: int
+    # Where the live loop keeps its state across restarts, and the
+    # append-only CSV of closed trades. Both default to a name derived
+    # from the config filename so instances cannot collide. Empty string
+    # disables that half.
+    state_file: str
+    trade_log: str
 
 
 @dataclass
@@ -155,11 +161,18 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         stop_slippage_pct=b.get("stop_slippage_pct", 0.0),
     )
 
+    # Default state/journal paths are derived from the config filename, so
+    # instances started from different configs never share them. Sharing
+    # would be silent and destructive: two bots writing one state file
+    # would each restore the other's positions.
+    stem = os.path.splitext(os.path.basename(path))[0]
     l = raw.get("live", {})
     live = LiveConfig(
         poll_interval_seconds=l.get("poll_interval_seconds", 30),
         use_native_sl_tp=l.get("use_native_sl_tp", True),
         status_log_interval_minutes=l.get("status_log_interval_minutes", 60),
+        state_file=l.get("state_file", f"state/{stem}-state.json"),
+        trade_log=l.get("trade_log", f"state/{stem}-trades.csv"),
     )
 
     return AppConfig(exchange=exchange, market=market, strategy=strategy, trend=trend, risk=risk,
