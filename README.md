@@ -439,6 +439,94 @@ None of that says the idea is bad - on Gold and Silver, two metals with a
 genuine economic link, it may well be sound. It says crypto pairs that all
 rise and fall with BTC are a different problem.
 
+## The benchmark this project spent too long ignoring
+
+Every figure above is measured against zero: does the strategy make money.
+That is the wrong question. The question anyone actually faces is whether
+it beats what they could have done by buying the asset and doing nothing.
+
+The bot, eight markets, long only (what a spot account runs), against
+simply holding:
+
+**2018-2026, the full history**
+
+| | CAGR | max drawdown | Sharpe |
+|---|---|---|---|
+| bot, cap 3 | 14.6% | **-18.9%** | **0.99** |
+| bot, cap 5 | 16.7% | -24.8% | 0.94 |
+| buy and hold BTC | **22.5%** | -81.6% | 0.66 |
+| buy and hold ETH | 14.7% | -94.1% | 0.52 |
+| buy and hold all eight, equal weight | -2.4% | -78.8% | 0.28 |
+
+**2024-2026, the held-out period**
+
+| | CAGR | max drawdown | Sharpe |
+|---|---|---|---|
+| bot, cap 3 | 3.8% | -18.9% | 0.31 |
+| bot, cap 5 | 9.5% | -24.8% | 0.54 |
+| buy and hold BTC | **24.1%** | -53.4% | **0.66** |
+| buy and hold all eight, equal weight | 9.8% | -64.2% | 0.43 |
+
+Read honestly:
+
+- **The bot does not beat holding BTC.** Not over the full history on
+  return, and over the held-out period it loses on return *and* on
+  Sharpe. Anyone who bought BTC in 2018 and did nothing has more money
+  than this bot would have made them.
+- **What it delivers is a quarter of the drawdown.** -19% against -82% is
+  not a detail; it is the difference between a position most people can
+  hold and one most people sell at the bottom. The full-history Sharpe of
+  0.99 against 0.66 is that, expressed as a number.
+- **Against the basket it actually trades, it wins clearly.** Equal-weight
+  those eight coins and hold them and you end 2018-2026 *down* 2.4% a
+  year. The bot's job is not to beat the single best asset of the era; it
+  is to extract something from a set of assets that collectively did
+  nothing.
+- **But picking BTC as the benchmark is hindsight too.** Nobody knew in
+  2018 which coin would be the one. The equal-weight row is closer to the
+  honest alternative, and the single-asset row is closer to what people
+  remember.
+
+### The same strategy on metals, equities and bonds
+
+Twenty-one ETFs, daily bars, 2005-2026 - the classic managed-futures
+spread. Same parameters; on daily bars the 20-bar Donchian *is* the
+original Turtle breakout, so nothing needed re-tuning
+(`scripts/` has no runner for this; the measurement lived in a scratch
+script and is recorded here).
+
+| | trades | mean per trade | quarter-clustered t | instruments positive |
+|---|---|---|---|---|
+| long and short | 2,660 | +0.085R | 2.25 | 16/21 |
+| **long only** | 1,522 | **+0.232R** | **4.17** | 17/21 |
+
+As an account, and against what anyone can buy instead:
+
+| | CAGR | max drawdown | Sharpe |
+|---|---|---|---|
+| trend long only, cap 8 | 7.8% | **-12.7%** | **1.02** |
+| buy and hold SPY | **10.9%** | -55.2% | 0.78 |
+| buy and hold GLD | 10.8% | -45.6% | 0.69 |
+| 60/40 SPY+IEF, monthly | 8.1% | -29.5% | 0.90 |
+
+The same shape of answer. Better risk-adjusted than anything on offer,
+roughly a better 60/40 - and still short of just owning the S&P on
+return. It also held together through 2022-2026, when long bonds lost 8%
+a year: 5.7% at a -6.8% drawdown.
+
+So "would another market be better" has a narrow answer and a wide one.
+Narrow: ETFs give a steadier ride (Sharpe 1.02 against 0.72 for long-only
+crypto) and a smaller one. Wide: changing the market does not change what
+this strategy is. It is a drawdown-reduction machine, not a
+money-multiplication machine, and it is worth running only for someone
+who would otherwise not hold the asset at all, or could not sit through
+an 80% decline.
+
+One practical note before anyone acts on the ETF table: this bot cannot
+trade it. `ccxt` connects to crypto exchanges. Metals and equities need a
+different broker entirely - a funded brokerage account and an
+`ict_bot/execution/` implementation that does not exist yet.
+
 ## Known limitations
 
 - The higher-timeframe bias filter derives its HTF candles by resampling
