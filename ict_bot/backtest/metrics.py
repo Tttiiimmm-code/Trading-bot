@@ -77,6 +77,19 @@ def max_drawdown_pct(equity_curve: pd.Series) -> float:
 
 
 def compute_metrics(trades: list[Trade], equity_curve: pd.Series, starting_balance: float) -> dict:
+    """Trade- and portfolio-level figures.
+
+    Note what "gross" means in ``gross_profit``/``gross_loss``: the sum of
+    the winners and the sum of the losers, before netting the two against
+    each other. It is the standard profit-factor terminology, but it does
+    NOT mean "before commissions" - every figure here is built from
+    ``Trade.pnl``, which is already net of fees. ``Trade.gross_pnl`` is the
+    one that means before commissions.
+
+    ``total_return_pct`` and ``final_balance`` come from the equity curve,
+    which is marked to market, so a position still open on the last bar
+    counts at its unrealised value even though it is not in ``num_trades``.
+    """
     num_trades = len(trades)
     wins = [t for t in trades if t.pnl > 0]
     losses = [t for t in trades if t.pnl <= 0]

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 
 
 def true_range(df: pd.DataFrame) -> np.ndarray:
@@ -37,14 +38,11 @@ def atr(df: pd.DataFrame, period: int = 14) -> np.ndarray:
     tr = true_range(df)
     if period <= 1:
         return tr
-    out = np.empty_like(tr)
-    cumulative = np.cumsum(tr)
-    for i in range(len(tr)):
-        if i < period:
-            out[i] = cumulative[i] / (i + 1)
-        else:
-            out[i] = (cumulative[i] - cumulative[i - period]) / period
-    return out
+    # min_periods=1 gives exactly the warm-up behaviour described above: for
+    # the first bars the window is clipped to what exists. A running
+    # cumulative sum would do the same but subtracts two large nearly-equal
+    # numbers, which loses precision on long histories at high prices.
+    return pd.Series(tr).rolling(period, min_periods=1).mean().to_numpy()
 
 
 def donchian(df: pd.DataFrame, period: int) -> tuple[np.ndarray, np.ndarray]:
@@ -60,7 +58,9 @@ def donchian(df: pd.DataFrame, period: int) -> tuple[np.ndarray, np.ndarray]:
     n = len(df)
     upper = np.full(n, np.nan)
     lower = np.full(n, np.nan)
-    for i in range(period, n):
-        upper[i] = high[i - period:i].max()
-        lower[i] = low[i - period:i].min()
+    if n > period:
+        # Windows over high[:-1] end one bar early, which is the exclusion:
+        # window k covers high[k:k+period] and lands at bar k+period.
+        upper[period:] = sliding_window_view(high[:-1], period).max(axis=1)
+        lower[period:] = sliding_window_view(low[:-1], period).min(axis=1)
     return upper, lower
