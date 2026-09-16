@@ -39,6 +39,7 @@ class BacktestConfig:
     taker_fee_pct: float
     stop_slippage_pct: float
     trail_on: str
+    wick_limit: float
 
 
 @dataclass
@@ -130,6 +131,12 @@ def _validate(config: AppConfig) -> None:
         problems.append(f"portfolio.stale_after_minutes is {config.portfolio.stale_after_minutes}; "
                         f"it must be above 0, and comfortably longer than one bar of the traded "
                         f"timeframe or live instances would drop off the board between bars")
+    if config.backtest.wick_limit < 0:
+        problems.append(f"backtest.wick_limit is {config.backtest.wick_limit}; use 0 to accept every "
+                        f"print unchecked, never a negative number")
+    elif 0 < config.backtest.wick_limit < 2:
+        problems.append(f"backtest.wick_limit is {config.backtest.wick_limit}; below about 2 it would clip "
+                        f"ordinary volatile candles, not misprints")
     if config.backtest.trail_on not in ("close", "high"):
         problems.append(f"backtest.trail_on is {config.backtest.trail_on!r}; expected 'close' or 'high'")
     if config.live.poll_interval_seconds < 1:
@@ -269,6 +276,7 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         taker_fee_pct=b.get("taker_fee_pct", 0.0),
         stop_slippage_pct=b.get("stop_slippage_pct", 0.0),
         trail_on=str(b.get("trail_on", "close")).lower(),
+        wick_limit=float(b.get("wick_limit", 5.0)),
     )
 
     # Default state/journal paths are derived from the config filename, so

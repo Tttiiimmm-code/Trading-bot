@@ -104,6 +104,21 @@ backtest:
   # same number whether the data is cleaned or not. See "What if the data is
   # bad" in the README.
   trail_on: "close"
+  # Guard against a lying feed. A wick may reach this many times the
+  # surrounding median bar range before it is treated as a misprint and
+  # clipped back; 0 accepts every print unchecked.
+  #
+  # Not hypothetical: pulling the same markets from OKX found a KuCoin LTC
+  # candle whose high was 43% above OKX's for the same period. A false high
+  # sets the breakout channel for the next entry_period bars and suppresses
+  # real signals; a false low fires a stop that never happened. Five is
+  # loose on purpose - real crashes pass, and a rule fine enough to catch
+  # every bad print is fine enough to be tuned into a desired backtest.
+  #
+  # The live loop judges each incoming bar against the window it already
+  # holds and logs every clip, so a repeating warning means the exchange
+  # feed needs looking at.
+  wick_limit: 5.0
   window_size: 300
   pending_order_expiry_bars: 8
   history_bars: 5000

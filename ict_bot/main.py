@@ -20,6 +20,7 @@ from ict_bot.backtest.engine import BacktestEngine, BacktestConfig as EngineBack
 from ict_bot.backtest.metrics import compute_metrics, pair_trades
 from ict_bot.config import AppConfig, build_strategy, load_config
 from ict_bot.data.feed import fetch_ohlcv_closed, fetch_ohlcv_history, load_ohlcv_csv, make_exchange
+from ict_bot.data.sanity import check as check_data, clip_with_context
 from ict_bot.execution.broker import Broker
 from ict_bot.execution.ccxt_broker import CCXTBroker, quote_currency_from_symbol
 from ict_bot.execution.paper import PaperBroker
@@ -54,6 +55,10 @@ def cmd_backtest(args: argparse.Namespace) -> None:
         logger.error("No OHLCV data loaded, aborting backtest.")
         return
     logger.info("Loaded %d bars from %s to %s", len(df), df.index[0], df.index[-1])
+    # Say what is wrong with the data before reporting results computed on
+    # it. A misprint sets the breakout channel for the next twenty bars.
+    tf_delta = pd.Timedelta(seconds=exchange.parse_timeframe(config.market.timeframe)) if not args.csv else None
+    df = check_data(df, config.market.symbol, tf_delta, config.backtest.wick_limit)
 
     engine_cfg = EngineBacktestConfig(
         symbol=config.market.symbol,
@@ -174,7 +179,8 @@ def cmd_live(args: argparse.Namespace) -> None:
 
     window_size = max(config.backtest.window_size, 100)
     tf_delta = pd.Timedelta(seconds=exchange.parse_timeframe(timeframe))
-    window = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=window_size)
+    window = check_data(fetch_ohlcv_closed(exchange, symbol, timeframe, limit=window_size),
+                        symbol, tf_delta, config.backtest.wick_limit)
     while window.empty:
         # Starting before the exchange returns anything would leave the loop
         # dereferencing window.index[-1] forever, retrying a window it never
@@ -196,7 +202,15 @@ def cmd_live(args: argparse.Namespace) -> None:
             new_closed, replacement = fetch_new_closed_bars(
                 exchange, symbol, timeframe, window.index[-1], tf_delta, window_size)
             if replacement is not None:
-                window = replacement.iloc[:-1]
+                window = check_data(replacement, symbol, tf_delta,
+                                    config.backtest.wick_limit).iloc[:-1]
+            if not new_closed.empty and config.backtest.wick_limit:
+                new_closed, clipped = clip_with_context(window, new_closed, config.backtest.wick_limit)
+                if clipped:
+                    logger.warning(
+                        "Clipped %d implausible wick(s) on incoming %s bar(s). A misprint would otherwise set "
+                        "the breakout channel for the next %d bars; check the exchange if this repeats.",
+                        clipped, symbol, config.trend.entry_period)
             # Every new bar is processed, in order. Taking only the newest
             # would skip the stop check on the others - and a poll can
             # legitimately return two at once, quite apart from outages.
