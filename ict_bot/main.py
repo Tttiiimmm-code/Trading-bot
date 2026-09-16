@@ -77,6 +77,38 @@ def cmd_backtest(args: argparse.Namespace) -> None:
             print(f"{key:20s}: {value}")
 
 
+def fetch_new_closed_bars(exchange, symbol: str, timeframe: str, last_seen: pd.Timestamp,
+                          tf_delta: pd.Timedelta, window_size: int) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+    """Closed bars after ``last_seen``, with no holes.
+
+    The poll only asks for the last couple of candles, which is enough
+    while the loop keeps up. It does not while the exchange is unreachable:
+    the loop retries, and when it recovers the short response no longer
+    reaches back to where we left off. Appending it anyway would splice a
+    gap into the window, and the indicators - Donchian channel, ATR, the
+    regime average - work positionally, so a "20-bar channel" would quietly
+    span more than 20 bars of real time with nothing in the log to say so.
+
+    Returns the bars to process and, when the outage outlasted the whole
+    window, a replacement window (the old one is too stale to extend).
+    """
+    latest = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=2)
+    new = latest[latest.index > last_seen]
+    if new.empty or new.index[0] <= last_seen + tf_delta:
+        return new, None
+
+    missed = max(0, int((new.index[0] - last_seen) / tf_delta) - 1)
+    logger.warning("Missed %d closed bar(s) on %s %s (last seen %s); refetching to close the gap.",
+                   missed, symbol, timeframe, last_seen)
+    full = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=window_size)
+    caught_up = full[full.index > last_seen]
+    if not caught_up.empty and caught_up.index[0] <= last_seen + tf_delta:
+        return caught_up, None
+
+    logger.warning("Outage outlasted the %d-bar window; restarting from fresh history.", window_size)
+    return full.iloc[[-1]], full
+
+
 def cmd_live(args: argparse.Namespace) -> None:
     config: AppConfig = load_config(args.config)
     strategy = build_strategy(config)
@@ -116,7 +148,18 @@ def cmd_live(args: argparse.Namespace) -> None:
             # reach for it when there is actually a trade to write.
             journal.catch_up(pair_trades(broker.fills), broker.get_balance)
 
-    window = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=max(config.backtest.window_size, 100))
+    window_size = max(config.backtest.window_size, 100)
+    tf_delta = pd.Timedelta(seconds=exchange.parse_timeframe(timeframe))
+    window = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=window_size)
+    while window.empty:
+        # Starting before the exchange returns anything would leave the loop
+        # dereferencing window.index[-1] forever, retrying a window it never
+        # refetches.
+        logger.warning("No closed %s candles for %s yet; retrying in %ds.",
+                       timeframe, symbol, config.live.poll_interval_seconds)
+        time.sleep(config.live.poll_interval_seconds)
+        window = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=window_size)
+
     pending: Signal | None = None
     pending_bars_left = 0
     last_status_log: pd.Timestamp | None = None
@@ -126,12 +169,15 @@ def cmd_live(args: argparse.Namespace) -> None:
                 args.mode, symbol, timeframe, config.strategy_type)
     while True:
         try:
-            latest = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=2)
-            new_closed = latest[latest.index > window.index[-1]]
-            if not new_closed.empty:
-                window = pd.concat([window, new_closed]).iloc[-config.backtest.window_size :]
-                bar = new_closed.iloc[-1]
-                ts = new_closed.index[-1]
+            new_closed, replacement = fetch_new_closed_bars(
+                exchange, symbol, timeframe, window.index[-1], tf_delta, window_size)
+            if replacement is not None:
+                window = replacement.iloc[:-1]
+            # Every new bar is processed, in order. Taking only the newest
+            # would skip the stop check on the others - and a poll can
+            # legitimately return two at once, quite apart from outages.
+            for ts, bar in new_closed.iterrows():
+                window = pd.concat([window, new_closed.loc[[ts]]]).iloc[-window_size:]
 
                 fill = broker.check_stop_and_target(symbol, bar, ts)
                 if fill is not None:
