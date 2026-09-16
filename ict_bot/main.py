@@ -23,6 +23,7 @@ from ict_bot.data.feed import fetch_ohlcv_closed, fetch_ohlcv_history, load_ohlc
 from ict_bot.execution.broker import Broker
 from ict_bot.execution.ccxt_broker import CCXTBroker, quote_currency_from_symbol
 from ict_bot.execution.paper import PaperBroker
+from ict_bot.execution.portfolio import PortfolioBoard
 from ict_bot.execution.state import restore_state, save_state
 from ict_bot.strategy.ict_strategy import Signal
 from ict_bot.strategy.risk import RiskManager
@@ -151,9 +152,18 @@ def cmd_live(args: argparse.Namespace) -> None:
         if journal is not None:
             journal.skip(len(pair_trades(broker.fills)))
 
+    # Instances know nothing about each other, so without this board a
+    # market per instance means the total at risk is however many bots
+    # happen to be running times their individual risk.
+    board = PortfolioBoard(config.portfolio.board_file, config.portfolio.stale_after_minutes) \
+        if config.portfolio.max_open_positions > 0 else None
+
     def persist() -> None:
         if config.live.state_file:
             save_state(config.live.state_file, broker, risk_manager, symbol, args.mode)
+        if board is not None:
+            position = broker.get_open_position(symbol)
+            board.publish(config.live.bot_id, [position] if position else [], pd.Timestamp.now("UTC"))
         if journal is not None:
             # get_balance() is a network call on the live broker, so only
             # reach for it when there is actually a trade to write.
@@ -221,7 +231,12 @@ def cmd_live(args: argparse.Namespace) -> None:
 
                 status_reason: str | None = None
                 if pending is None and broker.get_open_position(symbol) is None:
-                    if risk_manager.can_open_trade(ts, broker.get_balance()):
+                    allowed, held = (True, 0) if board is None else board.can_open(
+                        config.live.bot_id, config.portfolio.max_open_positions, pd.Timestamp.now("UTC"))
+                    if not allowed:
+                        status_reason = (f"portfolio cap reached: {held} position(s) open across all instances "
+                                         f"(limit {config.portfolio.max_open_positions})")
+                    elif risk_manager.can_open_trade(ts, broker.get_balance()):
                         trace: list[str] = []
                         signal = strategy.generate_signal(window, trace=trace)
                         if signal is not None:

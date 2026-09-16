@@ -260,6 +260,61 @@ know how much of that range came after the fill):
 
 A 3% haircut on the edge. Worth knowing, not worth restructuring for.
 
+### Breadth: the one change that measurably helped
+
+Every other idea tested here was a way to pick *better* trades. The one
+that worked was taking *more* of the same ones.
+
+First, a genuine out-of-sample test. The strategy and its parameters were
+settled on ten markets; nineteen others were then fetched and run
+untouched - every market with data included, including the ones that make
+it look bad:
+
+| | trades | mean per trade | t | quarter-clustered t | markets positive |
+|---|---|---|---|---|---|
+| the ten it was built on | 4,050 | +0.169R | 5.69 | 4.56 | 10/10 |
+| **nineteen never examined** | 7,039 | **+0.096R** | 4.79 | **4.13** | **17/19** |
+
+The edge replicates - and at **57% of the size**. That shrinkage is the
+honest correction to every other number on this page: the original ten
+were partly favourable by chance, and +0.10R is a better estimate of what
+to expect than +0.17R.
+
+Second, what breadth does to an account. One shared balance, positions
+competing for the same capital, 0.5% risked per trade:
+
+| universe | max open | CAGR | max drawdown | Sharpe |
+|---|---|---|---|---|
+| 10 markets | 5 | 33.3% | -37.5% | 1.25 |
+| **29 markets** | **5** | **39.6%** | **-31.7%** | **1.39** |
+| 29 markets | 10 | 55.9% | -45.6% | 1.22 |
+
+More return *and* a smaller drawdown, from the same strategy with no new
+parameters. That is diversification doing what it is supposed to do, and
+it is the only free lunch this project found.
+
+The cap on simultaneous positions was chosen the disciplined way - on
+2018-2023, then looked at once on 2024-2026:
+
+| max open | train Sharpe | test CAGR | test drawdown | test Sharpe |
+|---|---|---|---|---|
+| 3 | 1.06 | 33.9% | -15.3% | 1.48 |
+| **5 (chosen on train)** | **1.31** | **42.8%** | **-23.6%** | **1.54** |
+| 10 | 1.22 | 70.3% | -45.6% | 1.25 |
+| 15 | 1.16 | 104.7% | -59.7% | 1.31 |
+
+The cap matters because crypto markets move together: ten open positions
+is not ten bets, it is closer to one bet in ten pieces. Note what the
+larger caps do - the headline return keeps climbing while the drawdown
+climbs faster.
+
+**This is what makes the shared `portfolio:` section necessary.** Each bot
+is its own process with its own risk manager, so `risk.max_open_positions`
+limits one instance only. Running a market per instance, as these results
+assume, means nothing counts the total - twenty-nine bots at 0.5% each can
+have 14.5% at risk with no part of the system noticing. The board in
+`ict_bot/execution/portfolio.py` is how they see each other.
+
 ### A filter that would have inverted the edge
 
 A third party added an "M1-RSI spike filter" to the same friend's bot after

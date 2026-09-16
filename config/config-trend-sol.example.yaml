@@ -81,3 +81,21 @@ live:
   # reject anything else. Set to "" for an exchange that rejects client
   # order ids outright.
   # bot_id: "trend-btc"
+
+# Shared across every instance that points at the same board_file. Each
+# bot runs as its own process, so risk.max_open_positions only ever limits
+# that one bot - run a market per instance and nothing counts the total.
+# Twenty-nine bots risking 0.5% each can have 14.5% at risk at once.
+#
+# Measured over 29 markets, 2018-2026: a cap of 5 was chosen on 2018-2023
+# and then gave 42.8% CAGR at a -23.6% drawdown (Sharpe 1.54) on the
+# held-out 2024-2026 period. Higher caps earned more and gave most of it
+# back in drawdown; see "Breadth" in the README.
+portfolio:
+  max_open_positions: 0    # 0 = no shared cap. Set to 5 when running several instances.
+  board_file: "state/portfolio.json"
+  # An instance that stops republishing is treated as gone after this long,
+  # so a crashed bot cannot hold a slot forever. Keep it comfortably longer
+  # than one bar of the traded timeframe.
+  stale_after_minutes: 600
+
