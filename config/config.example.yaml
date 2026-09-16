@@ -37,6 +37,17 @@ strategy:
   # zone_midpoint ("fvg_ce" = the fair value gap's 50%, ICT's consequent
   # encroachment).
   entry_mode: "ob_midpoint"
+  # Where the take profit goes:
+  #   liquidity - next opposing resting pool, however far that is (ICT's
+  #               "draw on liquidity"; in backtests here the median target
+  #               sat ~4R away, and most trades gave back a +1R open gain
+  #               waiting for it)
+  #   fixed_r   - a fixed multiple of the risked distance
+  #   capped    - the liquidity target, but no further than take_profit_r
+  # A fixed/capped target caps risk/reward too, so keep
+  # min_risk_reward <= take_profit_r or nothing will pass the floor.
+  take_profit_mode: "liquidity"
+  take_profit_r: 2.0
 
 risk:
   risk_per_trade_pct: 1.0

@@ -92,6 +92,16 @@ class ICTStrategyConfig:
     # correlated frame is actually passed to generate_signal().
     require_smt: bool = False
     smt_allow_unknown: bool = True
+    # Where the take profit goes:
+    #   "liquidity" - the next opposing resting pool (ICT's draw on
+    #                 liquidity), however far away that happens to be
+    #   "fixed_r"   - a fixed multiple of the risked distance
+    #   "capped"    - the liquidity target, but no further than
+    #                 take_profit_r x risk
+    # Note a fixed/capped target caps the achievable risk/reward too, so
+    # min_risk_reward must be <= take_profit_r or nothing will pass.
+    take_profit_mode: str = "liquidity"
+    take_profit_r: float = 2.0
 
 
 def _combine_entry_zone(ob: ob_mod.OrderBlock, fvg: fvg_mod.FairValueGap | None) -> tuple[float, float]:
@@ -116,6 +126,28 @@ def _entry_price(mode: str, ob: ob_mod.OrderBlock, fvg: fvg_mod.FairValueGap | N
     if mode == "zone_midpoint":
         return (zone_top + zone_bottom) / 2.0
     return ob.midpoint
+
+
+def _take_profit(cfg: ICTStrategyConfig, side: Side, entry: float, stop_loss: float,
+                 target_pool: liq_mod.LiquidityPool | None) -> float | None:
+    """Resolve the take-profit level for the configured mode.
+
+    ``liquidity`` needs a real resting pool and returns None without one -
+    a target must never be synthesized from min_risk_reward, or that floor
+    would trivially pass its own check. ``fixed_r`` doesn't need a pool at
+    all; ``capped`` needs one but won't reach beyond take_profit_r.
+    """
+    risk = abs(entry - stop_loss)
+    direction = 1.0 if side == Side.LONG else -1.0
+    r_target = entry + direction * cfg.take_profit_r * risk
+
+    if cfg.take_profit_mode == "fixed_r":
+        return r_target
+    if target_pool is None:
+        return None
+    if cfg.take_profit_mode == "capped":
+        return min(target_pool.price, r_target) if side == Side.LONG else max(target_pool.price, r_target)
+    return target_pool.price
 
 
 class ICTStrategy:
@@ -241,10 +273,10 @@ class ICTStrategy:
             note(f"entry {entry:.4f} is on the wrong side of the stop {stop_loss:.4f}")
             return None
 
-        if target_pool is None:
+        take_profit = _take_profit(cfg, side, entry, stop_loss, target_pool)
+        if take_profit is None:
             note("no resting opposite liquidity pool available as a take-profit target")
             return None
-        take_profit = target_pool.price
 
         signal = Signal(
             index=last_ts,

@@ -98,6 +98,8 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         use_session_liquidity=s.get("use_session_liquidity", False),
         session_liquidity_rules=tuple(s.get("session_liquidity_rules", ("1D", "1W"))),
         entry_mode=s.get("entry_mode", "ob_midpoint"),
+        take_profit_mode=s.get("take_profit_mode", "liquidity"),
+        take_profit_r=s.get("take_profit_r", 2.0),
     )
 
     r = raw.get("risk", {})
