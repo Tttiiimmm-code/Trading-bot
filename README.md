@@ -527,6 +527,62 @@ trade it. `ccxt` connects to crypto exchanges. Metals and equities need a
 different broker entirely - a funded brokerage account and an
 `ict_bot/execution/` implementation that does not exist yet.
 
+## Timeframe, and why 4h rather than higher
+
+Higher timeframes mean wider stops, and wider stops are exactly what made
+this strategy viable where ICT was not. So the obvious move is up. Same
+parameters, only the bar size changing, eight markets:
+
+| timeframe | trades | median stop | mean per trade | quarter-clustered t | CAGR | Sharpe |
+|---|---|---|---|---|---|---|
+| **4h** | 1,863 | 4.17% | +0.176R | **2.61** | **14.6%** | **0.99** |
+| 8h | 970 | 6.03% | +0.199R | 1.59 | 7.3% | 0.75 |
+| 12h | 653 | 7.28% | +0.238R | 0.55 | 4.2% | 0.63 |
+| 1D | 338 | 10.11% | +0.235R | -0.54 | 3.9% | 0.78 |
+| 2D | 174 | 14.97% | **+0.424R** | 0.06 | 2.8% | 0.74 |
+
+(long only, shared cap 3)
+
+Each step up **does** improve the result per trade - +0.176R at 4h against
++0.424R at 2D, exactly as the cost argument predicts. And each step up
+makes the account worse, because it removes far more trades than it adds
+edge. At 2D there are 174 trades in 8.6 years across eight markets: the
+per-trade number is better and the quarter-clustered t is 0.06, which
+means it is no longer distinguishable from luck.
+
+So the answer is not "higher is better" but "as high as you can go while
+still getting enough trades to matter". For this strategy on crypto that
+is 4h.
+
+## Position size, measured against the strategy's actual losing runs
+
+A 37% win rate means long losing runs are normal rather than a
+malfunction. How long? **27 consecutive losing trades** in the real
+history. Not simulated - observed.
+
+Block-bootstrapped from the actual trade results (resampling in runs of
+twenty so clusters of losses stay clustered, because drawing single
+trades independently would understate precisely the risk in question),
+over an 8.6-year run:
+
+| risk per trade | median drawdown | 5th percentile | worst seen |
+|---|---|---|---|
+| 0.25% | -12.8% | -20.9% | -41.9% |
+| **0.5%** | **-23.8%** | **-38.3%** | -62.7% |
+| 1.0% | -43.0% | -63.3% | -84.5% |
+| 2.0% | -68.4% | -87.3% | -97.6% |
+
+The 0.5% the configs ship with is defensible, not conservative: a -24%
+drawdown is the *median* outcome, and one run in twenty goes past -38%.
+At 1% the median outcome is losing nearly half the account at some point
+along the way.
+
+This is what "risk management for the strategy, not just the account"
+means here. The edge lives in a handful of enormous winners - the best
+single trade in the history is +34.6R - so the only way to collect it is
+to still be trading when one arrives. Size for the losing runs, not for
+the average.
+
 ## Known limitations
 
 - The higher-timeframe bias filter derives its HTF candles by resampling
