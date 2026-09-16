@@ -47,10 +47,11 @@ def quote_currency_from_symbol(symbol: str, default: str = "USDT") -> str:
 
 class CCXTBroker(Broker):
     def __init__(self, exchange: ccxt.Exchange, quote_currency: str = "USDT", use_native_sl_tp: bool = True,
-                 bot_id: str = ""):
+                 bot_id: str = "", trail_on: str = "close"):
         self.exchange = exchange
         self.quote_currency = quote_currency
         self.use_native_sl_tp = use_native_sl_tp
+        self.trail_on = trail_on
         # Stamped onto every order this instance places, so several bots can
         # share one exchange account and each still recognise its own orders
         # in the exchange's history and in fetch_open_orders(). Empty
@@ -201,9 +202,11 @@ class CCXTBroker(Broker):
         if position.trail_distance is None:
             return False
         if position.side == Side.LONG:
-            new_stop = max(position.stop_loss, float(bar["high"]) - position.trail_distance)
+            reference = float(bar["high"] if self.trail_on == "high" else bar["close"])
+            new_stop = max(position.stop_loss, reference - position.trail_distance)
         else:
-            new_stop = min(position.stop_loss, float(bar["low"]) + position.trail_distance)
+            reference = float(bar["low"] if self.trail_on == "high" else bar["close"])
+            new_stop = min(position.stop_loss, reference + position.trail_distance)
         if new_stop == position.stop_loss:
             return False
         position.stop_loss = new_stop

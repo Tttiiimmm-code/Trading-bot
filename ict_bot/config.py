@@ -38,6 +38,7 @@ class BacktestConfig:
     maker_fee_pct: float
     taker_fee_pct: float
     stop_slippage_pct: float
+    trail_on: str
 
 
 @dataclass
@@ -129,6 +130,8 @@ def _validate(config: AppConfig) -> None:
         problems.append(f"portfolio.stale_after_minutes is {config.portfolio.stale_after_minutes}; "
                         f"it must be above 0, and comfortably longer than one bar of the traded "
                         f"timeframe or live instances would drop off the board between bars")
+    if config.backtest.trail_on not in ("close", "high"):
+        problems.append(f"backtest.trail_on is {config.backtest.trail_on!r}; expected 'close' or 'high'")
     if config.live.poll_interval_seconds < 1:
         problems.append(f"live.poll_interval_seconds is {config.live.poll_interval_seconds}; it must be at least 1")
 
@@ -265,6 +268,7 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         maker_fee_pct=b.get("maker_fee_pct", 0.0),
         taker_fee_pct=b.get("taker_fee_pct", 0.0),
         stop_slippage_pct=b.get("stop_slippage_pct", 0.0),
+        trail_on=str(b.get("trail_on", "close")).lower(),
     )
 
     # Default state/journal paths are derived from the config filename, so
