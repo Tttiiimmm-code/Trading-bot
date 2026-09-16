@@ -26,7 +26,8 @@ class BacktestConfig:
     starting_balance: float = 10_000.0
     window_size: int = 300
     pending_order_expiry_bars: int = 8
-    fee_pct: float = 0.0  # per side, % of notional
+    maker_fee_pct: float = 0.0  # entries and take-profits (resting limit orders)
+    taker_fee_pct: float = 0.0  # stop-outs (crossing the spread)
     stop_slippage_pct: float = 0.0  # applied to stop-loss exits only
 
 
@@ -51,7 +52,8 @@ class BacktestEngine:
         self.config = config or BacktestConfig()
         self.broker = PaperBroker(
             self.config.starting_balance,
-            fee_pct=self.config.fee_pct,
+            maker_fee_pct=self.config.maker_fee_pct,
+            taker_fee_pct=self.config.taker_fee_pct,
             stop_slippage_pct=self.config.stop_slippage_pct,
         )
 

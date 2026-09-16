@@ -61,7 +61,11 @@ backtest:
   # few tenths of a percent of price - a round trip at 0.05% per side can
   # eat a large share of what you risked per trade. Set these to your
   # exchange's real numbers before believing any backtest.
-  fee_pct: 0.0            # per side, % of notional (e.g. 0.05 for 5 bps)
+  # Entries and take-profits rest as limit orders (maker); only stop-outs
+  # cross the spread (taker). Charging everything at the taker rate roughly
+  # doubles the modelled cost, so the two are separate.
+  maker_fee_pct: 0.0      # % of notional (e.g. 0.02)
+  taker_fee_pct: 0.0      # % of notional (e.g. 0.05)
   stop_slippage_pct: 0.0  # extra adverse move on stop-outs, % of price
   window_size: 300
   pending_order_expiry_bars: 8

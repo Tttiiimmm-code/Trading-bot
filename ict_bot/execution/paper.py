@@ -5,16 +5,20 @@ touching a real exchange).
 
 Trading costs matter here far more than they look: this strategy places
 its stop just beyond a swept level, so the risked distance is often only a
-few tenths of a percent of price. A round trip at 0.05% per side then eats
-a large share of the amount risked per trade - enough to decide whether a
-small edge survives at all - so ``fee_pct`` and ``stop_slippage_pct``
-default to zero (frictionless, matching the original behaviour) but should
-be set to the exchange's real numbers for any backtest you intend to
-believe.
+few tenths of a percent of price. A round trip then eats a large share of
+the amount risked per trade - enough to decide whether a small edge
+survives at all - so set these to the exchange's real numbers for any
+backtest you intend to believe. They default to zero (frictionless,
+matching the original behaviour).
 
-Slippage is applied to stop-loss exits only: the entry and the take-profit
-are resting limit orders that fill at their price or not at all, while a
-stop is a market order that pays up to get out.
+Maker and taker are charged separately because this strategy's order mix
+is lopsided: the entry and the take-profit are resting limit orders (maker,
+and on many venues a third of the taker rate or less), while only the
+stop-out crosses the spread. Charging everything at the taker rate roughly
+doubles the modelled cost.
+
+Slippage likewise applies to stop-loss exits only - a limit order fills at
+its price or not at all, a stop pays up to get out.
 """
 from __future__ import annotations
 
@@ -25,16 +29,19 @@ from ict_bot.strategy.ict_strategy import Side
 
 
 class PaperBroker(Broker):
-    def __init__(self, starting_balance: float, fee_pct: float = 0.0, stop_slippage_pct: float = 0.0):
+    def __init__(self, starting_balance: float, maker_fee_pct: float = 0.0,
+                 taker_fee_pct: float = 0.0, stop_slippage_pct: float = 0.0):
         self.balance = starting_balance
-        self.fee_pct = fee_pct
+        self.maker_fee_pct = maker_fee_pct
+        self.taker_fee_pct = taker_fee_pct
         self.stop_slippage_pct = stop_slippage_pct
         self.fees_paid = 0.0
         self._positions: dict[str, Position] = {}
         self.fills: list[Fill] = []
 
-    def _charge_fee(self, amount: float, price: float) -> None:
-        fee = abs(amount * price) * self.fee_pct / 100.0
+    def _charge_fee(self, amount: float, price: float, maker: bool) -> None:
+        rate = self.maker_fee_pct if maker else self.taker_fee_pct
+        fee = abs(amount * price) * rate / 100.0
         self.balance -= fee
         self.fees_paid += fee
 
@@ -49,7 +56,8 @@ class PaperBroker(Broker):
             raise ValueError(f"Position already open for {symbol}")
         position = Position(symbol=symbol, side=side, amount=amount, entry_price=price, stop_loss=stop_loss, take_profit=take_profit, opened_at=ts)
         self._positions[symbol] = position
-        self._charge_fee(amount, price)
+        # The entry rests as a limit order in the order block, so it makes.
+        self._charge_fee(amount, price, maker=True)
         self.fills.append(Fill(symbol, side, amount, price, ts, reason="entry"))
         return position
 
@@ -63,7 +71,8 @@ class PaperBroker(Broker):
             price = price - drift if position.side == Side.LONG else price + drift
         pnl = self._pnl(position, price)
         self.balance += pnl
-        self._charge_fee(position.amount, price)
+        # Only a stop-out crosses the spread; a take-profit is a resting limit.
+        self._charge_fee(position.amount, price, maker=(reason == "take_profit"))
         fill = Fill(symbol, position.side, position.amount, price, ts, reason=reason)
         self.fills.append(fill)
         return fill

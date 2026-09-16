@@ -57,7 +57,8 @@ def cmd_backtest(args: argparse.Namespace) -> None:
         starting_balance=config.backtest.starting_balance,
         window_size=config.backtest.window_size,
         pending_order_expiry_bars=config.backtest.pending_order_expiry_bars,
-        fee_pct=config.backtest.fee_pct,
+        maker_fee_pct=config.backtest.maker_fee_pct,
+        taker_fee_pct=config.backtest.taker_fee_pct,
         stop_slippage_pct=config.backtest.stop_slippage_pct,
     )
     engine = BacktestEngine(df, strategy, risk_manager, engine_cfg)
@@ -91,7 +92,9 @@ def cmd_live(args: argparse.Namespace) -> None:
     else:
         starting_balance = config.backtest.starting_balance
         logger.info("Paper trading mode: simulated balance %.2f", starting_balance)
-        broker = PaperBroker(starting_balance, fee_pct=config.backtest.fee_pct,
+        broker = PaperBroker(starting_balance,
+                             maker_fee_pct=config.backtest.maker_fee_pct,
+                             taker_fee_pct=config.backtest.taker_fee_pct,
                              stop_slippage_pct=config.backtest.stop_slippage_pct)
 
     window = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=max(config.backtest.window_size, 100))
