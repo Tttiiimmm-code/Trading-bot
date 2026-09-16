@@ -125,9 +125,11 @@ def cmd_live(args: argparse.Namespace) -> None:
                     if touched and broker.get_open_position(symbol) is None:
                         amount = risk_manager.position_size(broker.get_balance(), pending.entry, pending.stop_loss)
                         if amount > 0:
-                            broker.open_position(symbol, pending.side, amount, pending.entry, pending.stop_loss, pending.take_profit, ts)
+                            broker.open_position(symbol, pending.side, amount, pending.entry, pending.stop_loss,
+                                                 pending.take_profit, ts, trail_distance=pending.trail_distance)
                             risk_manager.register_open()
-                            logger.info("Entered %s @ %.4f (SL %.4f / TP %.4f) - %s", pending.side.value, pending.entry, pending.stop_loss, pending.take_profit, pending.reason)
+                            target = f"{pending.take_profit:.4f}" if pending.take_profit is not None else "trailing"
+                            logger.info("Entered %s @ %.4f (SL %.4f / TP %s) - %s", pending.side.value, pending.entry, pending.stop_loss, target, pending.reason)
                             filled = True
                     # Match the backtest engine: a touch that couldn't be sized
                     # (e.g. balance too low) keeps the order pending until it
@@ -144,7 +146,8 @@ def cmd_live(args: argparse.Namespace) -> None:
                         trace: list[str] = []
                         signal = strategy.generate_signal(window, trace=trace)
                         if signal is not None:
-                            logger.info("New signal: %s entry=%.4f sl=%.4f tp=%.4f (%s)", signal.side.value, signal.entry, signal.stop_loss, signal.take_profit, signal.reason)
+                            tp = f"{signal.take_profit:.4f}" if signal.take_profit is not None else "trailing"
+                            logger.info("New signal: %s entry=%.4f sl=%.4f tp=%s (%s)", signal.side.value, signal.entry, signal.stop_loss, tp, signal.reason)
                             pending = signal
                             pending_bars_left = config.backtest.pending_order_expiry_bars
                             last_status_log = ts  # something happened - restart the quiet-period clock

@@ -49,14 +49,22 @@ class Signal:
     side: Side
     entry: float
     stop_loss: float
-    take_profit: float
+    take_profit: float | None
     reason: str
+    # Distance (in price) the stop is dragged behind the best price reached.
+    # None keeps the stop fixed. A trend-following exit needs this: capping
+    # winners at a fixed target is what destroys that style's edge.
+    trail_distance: float | None = None
 
     @property
     def risk_reward(self) -> float:
+        """Reward/risk of the fixed target, or 0.0 for an open-ended exit
+        (a trailing exit has no predetermined reward to divide by).
+        """
         risk = abs(self.entry - self.stop_loss)
-        reward = abs(self.take_profit - self.entry)
-        return reward / risk if risk else 0.0
+        if self.take_profit is None or not risk:
+            return 0.0
+        return abs(self.take_profit - self.entry) / risk
 
 
 @dataclass

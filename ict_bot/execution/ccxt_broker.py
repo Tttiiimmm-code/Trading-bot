@@ -40,7 +40,7 @@ class CCXTBroker(Broker):
         self._positions: dict[str, Position] = {}
         # symbol -> (stop_loss_order_id, take_profit_order_id) for positions
         # whose protective orders were placed natively on the exchange.
-        self._protective_orders: dict[str, tuple[str, str]] = {}
+        self._protective_orders: dict[str, tuple[str, str | None]] = {}
         self.fills: list[Fill] = []
 
     def get_balance(self) -> float:
@@ -53,7 +53,8 @@ class CCXTBroker(Broker):
     def get_open_position(self, symbol: str) -> Position | None:
         return self._positions.get(symbol)
 
-    def open_position(self, symbol: str, side: Side, amount: float, price: float, stop_loss: float, take_profit: float, ts: pd.Timestamp) -> Position:
+    def open_position(self, symbol: str, side: Side, amount: float, price: float, stop_loss: float,
+                      take_profit: float | None, ts: pd.Timestamp, trail_distance: float | None = None) -> Position:
         if symbol in self._positions:
             raise ValueError(f"Position already open for {symbol}")
 
@@ -61,20 +62,29 @@ class CCXTBroker(Broker):
         order = self.exchange.create_order(symbol, type="market", side=ccxt_side, amount=amount)
         fill_price = float(order.get("average") or order.get("price") or price)
 
-        if self.use_native_sl_tp:
+        if self.use_native_sl_tp and trail_distance is not None:
+            # A resting exchange-side stop never moves, so a trailing exit
+            # would silently behave differently live than in the backtest.
+            # Manage it by polling instead.
+            logger.info("Trailing stop requested for %s; managing it by polling rather than a native order.", symbol)
+        elif self.use_native_sl_tp:
             try:
                 self._protective_orders[symbol] = self._place_protective_orders(symbol, side, amount, stop_loss, take_profit)
             except Exception:  # pragma: no cover - exchange/network dependent
                 logger.exception("Failed to place native SL/TP orders for %s; falling back to polling.", symbol)
 
-        position = Position(symbol=symbol, side=side, amount=amount, entry_price=fill_price, stop_loss=stop_loss, take_profit=take_profit, opened_at=ts)
+        position = Position(symbol=symbol, side=side, amount=amount, entry_price=fill_price, stop_loss=stop_loss,
+                            take_profit=take_profit, opened_at=ts, trail_distance=trail_distance)
         self._positions[symbol] = position
         self.fills.append(Fill(symbol, side, amount, fill_price, ts, reason="entry"))
         return position
 
-    def _place_protective_orders(self, symbol: str, side: Side, amount: float, stop_loss: float, take_profit: float) -> tuple[str, str]:
+    def _place_protective_orders(self, symbol: str, side: Side, amount: float, stop_loss: float,
+                                 take_profit: float | None) -> tuple[str, str | None]:
         close_side = "sell" if side == Side.LONG else "buy"
         sl_order = self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params={"stopLossPrice": stop_loss, "reduceOnly": True})
+        if take_profit is None:
+            return sl_order["id"], None  # open-ended exit: stop only
         try:
             tp_order = self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params={"takeProfitPrice": take_profit, "reduceOnly": True})
         except Exception:
@@ -126,6 +136,8 @@ class CCXTBroker(Broker):
             return None
         sl_id, tp_id = order_ids
         for order_id, reason, fallback_price in ((sl_id, "stop_loss", position.stop_loss), (tp_id, "take_profit", position.take_profit)):
+            if order_id is None:
+                continue
             try:
                 order = self.exchange.fetch_order(order_id, symbol)
             except Exception:  # pragma: no cover - exchange/network dependent
@@ -162,11 +174,19 @@ class CCXTBroker(Broker):
         if position.side == Side.LONG:
             if bar["low"] <= position.stop_loss:
                 return self.close_position(symbol, position.stop_loss, ts, reason="stop_loss")
-            if bar["high"] >= position.take_profit:
+            if position.take_profit is not None and bar["high"] >= position.take_profit:
                 return self.close_position(symbol, position.take_profit, ts, reason="take_profit")
         else:
             if bar["high"] >= position.stop_loss:
                 return self.close_position(symbol, position.stop_loss, ts, reason="stop_loss")
-            if bar["low"] <= position.take_profit:
+            if position.take_profit is not None and bar["low"] <= position.take_profit:
                 return self.close_position(symbol, position.take_profit, ts, reason="take_profit")
+
+        # Same ordering rule as the paper broker: this bar is judged against
+        # the stop it opened with, and only then drags the stop along.
+        if position.trail_distance is not None:
+            if position.side == Side.LONG:
+                position.stop_loss = max(position.stop_loss, float(bar["high"]) - position.trail_distance)
+            else:
+                position.stop_loss = min(position.stop_loss, float(bar["low"]) + position.trail_distance)
         return None

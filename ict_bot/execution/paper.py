@@ -52,10 +52,12 @@ class PaperBroker(Broker):
     def get_open_position(self, symbol: str) -> Position | None:
         return self._positions.get(symbol)
 
-    def open_position(self, symbol: str, side: Side, amount: float, price: float, stop_loss: float, take_profit: float, ts: pd.Timestamp) -> Position:
+    def open_position(self, symbol: str, side: Side, amount: float, price: float, stop_loss: float,
+                      take_profit: float | None, ts: pd.Timestamp, trail_distance: float | None = None) -> Position:
         if symbol in self._positions:
             raise ValueError(f"Position already open for {symbol}")
-        position = Position(symbol=symbol, side=side, amount=amount, entry_price=price, stop_loss=stop_loss, take_profit=take_profit, opened_at=ts)
+        position = Position(symbol=symbol, side=side, amount=amount, entry_price=price, stop_loss=stop_loss,
+                            take_profit=take_profit, opened_at=ts, trail_distance=trail_distance)
         self._positions[symbol] = position
         # The entry rests as a limit order in the order block, so it makes.
         fee = self._charge_fee(amount, price, maker=True)
@@ -85,7 +87,7 @@ class PaperBroker(Broker):
 
         if position.side == Side.LONG:
             hit_stop = bar["low"] <= position.stop_loss
-            hit_target = bar["high"] >= position.take_profit
+            hit_target = position.take_profit is not None and bar["high"] >= position.take_profit
             # conservative: if both levels are inside the same bar, assume the stop was hit first
             if hit_stop:
                 return self.close_position(symbol, position.stop_loss, ts, reason="stop_loss")
@@ -93,12 +95,27 @@ class PaperBroker(Broker):
                 return self.close_position(symbol, position.take_profit, ts, reason="take_profit")
         else:
             hit_stop = bar["high"] >= position.stop_loss
-            hit_target = bar["low"] <= position.take_profit
+            hit_target = position.take_profit is not None and bar["low"] <= position.take_profit
             if hit_stop:
                 return self.close_position(symbol, position.stop_loss, ts, reason="stop_loss")
             if hit_target:
                 return self.close_position(symbol, position.take_profit, ts, reason="take_profit")
+
+        # Only ratchet once this bar has been checked against the stop as it
+        # stood when the bar opened. Raising the stop using this same bar's
+        # extreme and then testing it would let a single bar both set and
+        # trigger the level - look-ahead that flatters a trailing exit.
+        self._trail(position, bar)
         return None
+
+    @staticmethod
+    def _trail(position: Position, bar: pd.Series) -> None:
+        if position.trail_distance is None:
+            return
+        if position.side == Side.LONG:
+            position.stop_loss = max(position.stop_loss, float(bar["high"]) - position.trail_distance)
+        else:
+            position.stop_loss = min(position.stop_loss, float(bar["low"]) + position.trail_distance)
 
     @staticmethod
     def _pnl(position: Position, exit_price: float) -> float:

@@ -19,8 +19,9 @@ class Position:
     amount: float
     entry_price: float
     stop_loss: float
-    take_profit: float
+    take_profit: float | None
     opened_at: pd.Timestamp
+    trail_distance: float | None = None
 
 
 @dataclass
@@ -44,7 +45,8 @@ class Broker(abc.ABC):
     def get_balance(self) -> float: ...
 
     @abc.abstractmethod
-    def open_position(self, symbol: str, side: Side, amount: float, price: float, stop_loss: float, take_profit: float, ts: pd.Timestamp) -> Position: ...
+    def open_position(self, symbol: str, side: Side, amount: float, price: float, stop_loss: float,
+                      take_profit: float | None, ts: pd.Timestamp, trail_distance: float | None = None) -> Position: ...
 
     @abc.abstractmethod
     def close_position(self, symbol: str, price: float, ts: pd.Timestamp, reason: str = "manual_close") -> Fill | None: ...

@@ -101,7 +101,8 @@ class BacktestEngine:
         amount = self.risk_manager.position_size(self.broker.get_balance(), signal.entry, signal.stop_loss)
         if amount <= 0:
             return False
-        self.broker.open_position(symbol, signal.side, amount, signal.entry, signal.stop_loss, signal.take_profit, ts)
+        self.broker.open_position(symbol, signal.side, amount, signal.entry, signal.stop_loss,
+                                  signal.take_profit, ts, trail_distance=signal.trail_distance)
         self.risk_manager.register_open()
         return True
 
