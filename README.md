@@ -715,9 +715,19 @@ available and is what the older figures used.
 
 ### Honest headline, after all of this
 
-The trend strategy on eight markets, long only, shared cap 3, with the
-close trail: **+0.157R per trade, roughly 10% CAGR at a -19% drawdown.**
-Not the 14.6% and +0.176R quoted earlier in this project's life.
+The trend strategy on eight markets, long only, shared cap 3, run through
+the real code path with every shipped default in place - the feed cleaned
+by `ict_bot.data.sanity`, the trail on the close:
+
+| | trades | mean per trade | quarter-clustered t | CAGR | max drawdown | Sharpe |
+|---|---|---|---|---|---|---|
+| **the eight configured** | 1,706 | **+0.157R** | 2.15 | **9.5%** | **-21.4%** | 0.72 |
+| all 29 markets | 5,598 | +0.067R | 1.44 | 8.1% | -43.7% | 0.50 |
+
+Not the 14.6% and +0.176R quoted earlier in this project's life. The
+second row is the reminder that long-only breadth past eight markets makes
+things worse, not better, and that at 29 markets the quarterly evidence no
+longer clears significance.
 
 And the limits that remain: one crypto venue for history (cross-checked on
 a second only for the last eight months), markets that still exist today,
