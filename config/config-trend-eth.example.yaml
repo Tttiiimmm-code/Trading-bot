@@ -69,3 +69,15 @@ live:
   # instances never share them. Set to "" to disable.
   # state_file: "state/my-instance-state.json"
   # trade_log: "state/my-instance-trades.csv"
+  # Identifies this bot's orders on the exchange, the way a MetaTrader
+  # "magic number" does. Every order it places carries a client order id
+  # of "<bot_id>-<random>", so several bots can share one exchange account
+  # and each still recognise its own orders - in the exchange's order
+  # history and in the shared-account check the bot runs at startup, which
+  # warns when someone else has a resting order on the same symbol.
+  #
+  # Defaults to this config's filename, so instances never collide.
+  # Letters, digits, '-' and '_' only, at most 24 characters; exchanges
+  # reject anything else. Set to "" for an exchange that rejects client
+  # order ids outright.
+  # bot_id: "trend-btc"

@@ -122,7 +122,18 @@ def cmd_live(args: argparse.Namespace) -> None:
     if args.mode == "live":
         if not config.exchange.sandbox:
             logger.warning("LIVE mode with sandbox=false: this will place REAL orders with REAL funds on %s.", config.exchange.id)
-        broker = CCXTBroker(exchange, quote_currency=quote_currency_from_symbol(symbol), use_native_sl_tp=config.live.use_native_sl_tp)
+        broker = CCXTBroker(exchange, quote_currency=quote_currency_from_symbol(symbol),
+                            use_native_sl_tp=config.live.use_native_sl_tp, bot_id=config.live.bot_id)
+        # On a shared account someone else's stop can close a position this
+        # bot believes it controls. Say so once, loudly, rather than let it
+        # look like an exit the strategy chose.
+        foreign = broker.find_foreign_orders(symbol)
+        if foreign:
+            logger.warning(
+                "%d order(s) on %s were not placed by this bot (id %r). If another bot or a manual order "
+                "is managing the same symbol, its stop can close a position this one thinks it owns. "
+                "Order ids: %s", len(foreign), symbol, config.live.bot_id,
+                ", ".join(str(o.get("id")) for o in foreign[:10]))
     else:
         starting_balance = config.backtest.starting_balance
         logger.info("Paper trading mode: simulated balance %.2f", starting_balance)

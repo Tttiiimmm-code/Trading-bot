@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 
 import yaml
 from dotenv import load_dotenv
 
+from ict_bot.execution.ccxt_broker import BOT_ID_PATTERN, MAX_BOT_ID
 from ict_bot.ict.killzones import KILL_ZONE_PRESETS
 from ict_bot.strategy.ict_strategy import ICTStrategy, ICTStrategyConfig
 from ict_bot.strategy.risk import RiskConfig
@@ -49,6 +51,10 @@ class LiveConfig:
     # disables that half.
     state_file: str
     trade_log: str
+    # Stamped onto every live order so several bots can share one exchange
+    # account and still tell their orders apart. Defaults to the config
+    # filename. Empty disables tagging.
+    bot_id: str
 
 
 @dataclass
@@ -102,6 +108,10 @@ def _validate(config: AppConfig) -> None:
                         ("stop_slippage_pct", config.backtest.stop_slippage_pct)):
         if value < 0:
             problems.append(f"backtest.{name} is {value}; a negative cost would pay you to trade")
+    if config.live.bot_id and not BOT_ID_PATTERN.match(config.live.bot_id):
+        problems.append(
+            f"live.bot_id is {config.live.bot_id!r}; it must be 1-{MAX_BOT_ID} characters of letters, digits, "
+            f"'-' or '_'. Exchanges reject anything else in a client order id, so every order would fail")
     if config.live.poll_interval_seconds < 1:
         problems.append(f"live.poll_interval_seconds is {config.live.poll_interval_seconds}; it must be at least 1")
 
@@ -139,6 +149,15 @@ def _validate(config: AppConfig) -> None:
 
     if problems:
         raise ValueError("config problems:\n  - " + "\n  - ".join(problems))
+
+
+def _default_bot_id(stem: str) -> str:
+    """A config filename turned into something an exchange will accept as
+    part of a client order id: letters, digits, '-' and '_' only. A
+    filename like "config.example" has a dot in it, which Binance rejects.
+    """
+    cleaned = re.sub(r"[^A-Za-z0-9_-]", "-", stem).strip("-")
+    return cleaned[:MAX_BOT_ID] or "bot"
 
 
 def _kill_zones(preset: str) -> list:
@@ -236,6 +255,7 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         status_log_interval_minutes=l.get("status_log_interval_minutes", 60),
         state_file=l.get("state_file", f"state/{stem}-state.json"),
         trade_log=l.get("trade_log", f"state/{stem}-trades.csv"),
+        bot_id=str(l.get("bot_id", _default_bot_id(stem)))[:MAX_BOT_ID],
     )
 
     config = AppConfig(exchange=exchange, market=market, strategy=strategy, trend=trend, risk=risk,

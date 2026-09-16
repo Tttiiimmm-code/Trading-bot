@@ -172,3 +172,29 @@ def test_negative_costs_are_refused(tmp_path):
     """)
     with pytest.raises(ValueError, match="pay you to trade"):
         load_config(path, env_path=str(tmp_path / "missing.env"))
+
+
+def test_the_default_bot_id_is_derived_from_the_config_filename(tmp_path):
+    # Two instances on one exchange account must not share a tag, or the
+    # shared-account check cannot tell their orders apart.
+    path = tmp_path / "config-trend-btc.yaml"
+    path.write_text(MINIMAL)
+    config = load_config(str(path), env_path=str(tmp_path / "missing.env"))
+    assert config.live.bot_id == "config-trend-btc"
+
+
+def test_a_filename_an_exchange_would_reject_is_cleaned_up(tmp_path):
+    # Binance allows only [A-Za-z0-9_-] in a client order id, and
+    # "config.example.yaml" has a dot in its stem.
+    path = tmp_path / "config.example.yaml"
+    path.write_text(MINIMAL)
+    config = load_config(str(path), env_path=str(tmp_path / "missing.env"))
+    assert config.live.bot_id == "config-example"
+
+
+def test_an_unusable_bot_id_is_caught_at_load_time(tmp_path):
+    with pytest.raises(ValueError, match="live.bot_id"):
+        load_config(_write(tmp_path, """
+            live:
+              bot_id: "my bot!"
+        """), env_path=str(tmp_path / "missing.env"))

@@ -15,6 +15,8 @@ the ccxt docs for that specific exchange.
 from __future__ import annotations
 
 import logging
+import re
+import uuid
 
 import ccxt
 import pandas as pd
@@ -23,6 +25,13 @@ from ict_bot.execution.broker import Broker, Fill, Position
 from ict_bot.strategy.ict_strategy import Side
 
 logger = logging.getLogger(__name__)
+
+
+# Exchanges limit client order ids: Binance allows 36 characters of
+# [A-Za-z0-9_-]. The id is prefix + "-" + 8 hex characters, so the prefix
+# has to leave room for that.
+MAX_BOT_ID = 24
+BOT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,%d}$" % MAX_BOT_ID)
 
 
 def quote_currency_from_symbol(symbol: str, default: str = "USDT") -> str:
@@ -37,15 +46,62 @@ def quote_currency_from_symbol(symbol: str, default: str = "USDT") -> str:
 
 
 class CCXTBroker(Broker):
-    def __init__(self, exchange: ccxt.Exchange, quote_currency: str = "USDT", use_native_sl_tp: bool = True):
+    def __init__(self, exchange: ccxt.Exchange, quote_currency: str = "USDT", use_native_sl_tp: bool = True,
+                 bot_id: str = ""):
         self.exchange = exchange
         self.quote_currency = quote_currency
         self.use_native_sl_tp = use_native_sl_tp
+        # Stamped onto every order this instance places, so several bots can
+        # share one exchange account and each still recognise its own orders
+        # in the exchange's history and in fetch_open_orders(). Empty
+        # disables tagging for exchanges that reject the parameter.
+        self.bot_id = bot_id
+        if bot_id and not BOT_ID_PATTERN.match(bot_id):
+            raise ValueError(
+                f"bot_id {bot_id!r} must be 1-{MAX_BOT_ID} characters of letters, digits, '-' or '_'; "
+                f"exchanges reject anything else in a client order id")
         self._positions: dict[str, Position] = {}
         # symbol -> (stop_loss_order_id, take_profit_order_id) for positions
         # whose protective orders were placed natively on the exchange.
         self._protective_orders: dict[str, tuple[str, str | None]] = {}
         self.fills: list[Fill] = []
+
+    def _tag(self, params: dict | None = None) -> dict:
+        """Add a unique client order id built from this bot's id.
+
+        The random suffix is required, not decorative: exchanges reject a
+        client order id that has been used before, so a fixed tag would
+        work once and then start failing orders.
+        """
+        params = dict(params or {})
+        if self.bot_id:
+            params["clientOrderId"] = f"{self.bot_id}-{uuid.uuid4().hex[:8]}"
+        return params
+
+    def find_foreign_orders(self, symbol: str) -> list[dict]:
+        """Resting orders on this symbol that this bot did not place.
+
+        Useful before trading a shared account: another bot's stop sitting
+        on the same symbol will close a position this one believes it
+        controls. Returns them rather than touching them - cancelling
+        somebody else's protective order is never this bot's call.
+        """
+        if not self.bot_id:
+            return []
+        try:
+            open_orders = self.exchange.fetch_open_orders(symbol)
+        except Exception:  # pragma: no cover - not every exchange supports it
+            logger.exception("Could not list open orders for %s; skipping the shared-account check", symbol)
+            return []
+        mine = {order_id for ids in self._protective_orders.values() for order_id in ids if order_id}
+        foreign = []
+        for order in open_orders:
+            if order.get("id") in mine:
+                continue
+            tag = order.get("clientOrderId") or ""
+            if not tag.startswith(f"{self.bot_id}-"):
+                foreign.append(order)
+        return foreign
 
     def get_balance(self) -> float:
         balance = self.exchange.fetch_balance()
@@ -63,7 +119,8 @@ class CCXTBroker(Broker):
             raise ValueError(f"Position already open for {symbol}")
 
         ccxt_side = "buy" if side == Side.LONG else "sell"
-        order = self.exchange.create_order(symbol, type="market", side=ccxt_side, amount=amount)
+        order = self.exchange.create_order(symbol, type="market", side=ccxt_side, amount=amount,
+                                          params=self._tag())
         fill_price = float(order.get("average") or order.get("price") or price)
 
         if self.use_native_sl_tp:
@@ -81,11 +138,11 @@ class CCXTBroker(Broker):
     def _place_protective_orders(self, symbol: str, side: Side, amount: float, stop_loss: float,
                                  take_profit: float | None) -> tuple[str, str | None]:
         close_side = "sell" if side == Side.LONG else "buy"
-        sl_order = self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params={"stopLossPrice": stop_loss, "reduceOnly": True})
+        sl_order = self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params=self._tag({"stopLossPrice": stop_loss, "reduceOnly": True}))
         if take_profit is None:
             return sl_order["id"], None  # open-ended exit: stop only
         try:
-            tp_order = self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params={"takeProfitPrice": take_profit, "reduceOnly": True})
+            tp_order = self.exchange.create_order(symbol, type="market", side=close_side, amount=amount, params=self._tag({"takeProfitPrice": take_profit, "reduceOnly": True}))
         except Exception:
             # Don't leave the already-placed stop-loss order resting on the
             # exchange, untracked, if the take-profit leg failed to place.
@@ -130,7 +187,7 @@ class CCXTBroker(Broker):
         close_side = "sell" if position.side == Side.LONG else "buy"
         try:
             order = self.exchange.create_order(symbol, type="market", side=close_side, amount=position.amount,
-                                               params={"stopLossPrice": position.stop_loss, "reduceOnly": True})
+                                               params=self._tag({"stopLossPrice": position.stop_loss, "reduceOnly": True}))
         except Exception:  # pragma: no cover - exchange/network dependent
             self._protective_orders.pop(symbol, None)
             logger.exception("Failed to re-place the trailing stop for %s at %.8f; falling back to polling",
@@ -162,7 +219,8 @@ class CCXTBroker(Broker):
         # exists locally.
         self._cancel_protective_orders(symbol)
         close_side = "sell" if position.side == Side.LONG else "buy"
-        order = self.exchange.create_order(symbol, type="market", side=close_side, amount=position.amount, params={"reduceOnly": True})
+        order = self.exchange.create_order(symbol, type="market", side=close_side, amount=position.amount,
+                                          params=self._tag({"reduceOnly": True}))
         fill_price = float(order.get("average") or order.get("price") or price)
         fill = Fill(symbol, position.side, position.amount, fill_price, ts, reason=reason)
         self.fills.append(fill)

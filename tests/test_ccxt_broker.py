@@ -265,3 +265,80 @@ def test_a_filled_trailing_stop_is_reported_once():
     assert fill is not None and fill.reason == "stop_loss" and fill.price == 90.0
     assert broker.get_open_position("BTC/USDT") is None
     assert broker.check_stop_and_target("BTC/USDT", _bar(95.0, 89.0), ts) is None
+
+
+class TaggingExchange(FakeExchange):
+    """Records the params every order was placed with, and can serve a
+    list of resting orders as fetch_open_orders() would."""
+
+    def __init__(self, balances: dict, open_orders: list[dict] | None = None):
+        super().__init__(balances, order_price=100.0)
+        self.placed_params: list[dict] = []
+        self._open_orders = open_orders or []
+
+    def create_order(self, symbol, type, side, amount, params=None) -> dict:
+        self.placed_params.append(dict(params or {}))
+        return super().create_order(symbol, type, side, amount, params)
+
+    def fetch_open_orders(self, symbol):
+        return self._open_orders
+
+
+def test_every_order_carries_this_bots_tag():
+    exchange = TaggingExchange({"USDT": {"free": 10_000.0}})
+    broker = CCXTBroker(exchange, quote_currency="USDT", bot_id="trend-btc")
+    ts = pd.Timestamp("2024-01-01", tz="UTC")
+    broker.open_position("BTC/USDT", Side.LONG, 1.0, 100.0, 90.0, 120.0, ts)
+    broker.close_position("BTC/USDT", 110.0, ts)
+
+    tags = [p.get("clientOrderId") for p in exchange.placed_params]
+    assert len(tags) == 4  # entry, stop, target, close
+    assert all(tag and tag.startswith("trend-btc-") for tag in tags), tags
+
+
+def test_each_order_gets_a_distinct_id():
+    # Exchanges reject a client order id that has been used before, so a
+    # fixed tag would place one order and then start failing.
+    exchange = TaggingExchange({"USDT": {"free": 10_000.0}})
+    broker = CCXTBroker(exchange, quote_currency="USDT", bot_id="trend-btc")
+    ts = pd.Timestamp("2024-01-01", tz="UTC")
+    broker.open_position("BTC/USDT", Side.LONG, 1.0, 100.0, 90.0, 120.0, ts)
+
+    tags = [p["clientOrderId"] for p in exchange.placed_params]
+    assert len(set(tags)) == len(tags)
+
+
+def test_no_tag_is_sent_when_no_bot_id_is_configured():
+    # Some exchanges reject the parameter outright; an empty id opts out.
+    exchange = TaggingExchange({"USDT": {"free": 10_000.0}})
+    broker = CCXTBroker(exchange, quote_currency="USDT", bot_id="")
+    broker.open_position("BTC/USDT", Side.LONG, 1.0, 100.0, 90.0, None,
+                         pd.Timestamp("2024-01-01", tz="UTC"))
+    assert all("clientOrderId" not in p for p in exchange.placed_params)
+
+
+@pytest.mark.parametrize("bad", ["has space", "dot.dot", "a" * 25, "semi;colon"])
+def test_an_unusable_bot_id_is_refused_up_front(bad):
+    with pytest.raises(ValueError, match="bot_id"):
+        CCXTBroker(FakeExchange({"USDT": {"free": 1.0}}), bot_id=bad)
+
+
+def test_orders_from_another_bot_on_the_same_account_are_reported():
+    open_orders = [
+        {"id": "900", "clientOrderId": "trend-eth-aaaaaaaa"},   # a sibling bot
+        {"id": "901", "clientOrderId": "trend-btc-bbbbbbbb"},   # ours
+        {"id": "902", "clientOrderId": None},                   # placed by hand
+    ]
+    exchange = TaggingExchange({"USDT": {"free": 10_000.0}}, open_orders=open_orders)
+    broker = CCXTBroker(exchange, quote_currency="USDT", bot_id="trend-btc")
+
+    foreign = broker.find_foreign_orders("BTC/USDT")
+    assert sorted(o["id"] for o in foreign) == ["900", "902"]
+
+
+def test_nothing_is_reported_as_foreign_without_a_bot_id():
+    # Without a tag there is no way to tell whose order is whose, and
+    # guessing would cry wolf on every manual order.
+    exchange = TaggingExchange({"USDT": {"free": 1.0}},
+                               open_orders=[{"id": "900", "clientOrderId": "someone-else"}])
+    assert CCXTBroker(exchange, bot_id="").find_foreign_orders("BTC/USDT") == []
