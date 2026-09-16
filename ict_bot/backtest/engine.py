@@ -75,7 +75,13 @@ class BacktestEngine:
 
             if pending is not None:
                 filled = self._try_fill(pending, bar, ts, symbol)
-                expired = not filled and (i - pending.created_at_i) > cfg.pending_order_expiry_bars
+                # ">=" so the order gets exactly pending_order_expiry_bars
+                # chances to fill, which is what the live loop gives it.
+                # ">" gave the backtest one extra bar - worth nothing to the
+                # trend strategy, whose entry is the breakout close and fills
+                # on the next bar, but a real advantage to any strategy
+                # resting its entry away from the market.
+                expired = not filled and (i - pending.created_at_i) >= cfg.pending_order_expiry_bars
                 if filled or expired:
                     pending = None
 

@@ -243,6 +243,23 @@ because shorts profit from coins that collapse); shorts need futures, since
 spot cannot be sold short; and the fill model still assumes a limit order
 fills the moment price touches it.
 
+One modelling choice is worth naming because it flatters the result, and
+worth quantifying so it is a known bias rather than an unknown one. The
+engine checks the stop *before* filling a pending order, so the entry bar
+itself is never tested against its own stop - a bar that entered and then
+ran through the stop is only noticed on the next one. The live loop does
+the same, so the two agree, but reality does not. Re-running the whole
+study with every entry bar also checked against the stop, using the bar's
+full range (the worst case, since without tick data there is no way to
+know how much of that range came after the fill):
+
+| | trades | mean per trade | t |
+|---|---|---|---|
+| as measured | 4,053 | +0.169R | 5.68 |
+| worst-case entry-bar stops | 4,103 | +0.164R | 5.56 |
+
+A 3% haircut on the edge. Worth knowing, not worth restructuring for.
+
 ## Known limitations
 
 - The higher-timeframe bias filter derives its HTF candles by resampling
