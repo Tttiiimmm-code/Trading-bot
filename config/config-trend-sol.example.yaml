@@ -92,7 +92,7 @@ live:
 # held-out 2024-2026 period. Higher caps earned more and gave most of it
 # back in drawdown; see "Breadth" in the README.
 portfolio:
-  max_open_positions: 0    # 0 = no shared cap. Set to 5 when running several instances.
+  max_open_positions: 3    # shared across ALL instances using this board_file
   board_file: "state/portfolio.json"
   # An instance that stops republishing is treated as gone after this long,
   # so a crashed bot cannot hold a slot forever. Keep it comfortably longer

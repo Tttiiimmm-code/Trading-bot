@@ -117,13 +117,25 @@ worth taking - one market averaged roughly 50 trades a year.
 
 ```bash
 cd /opt/ict-bot/Trading-bot
-for m in btc eth sol; do
+for m in btc eth ltc xrp ada link bch sol; do
   cp config/config-trend-$m.example.yaml config/config-trend-$m.yaml
   systemctl enable --now ict-bot@trend-$m.service
 done
 systemctl status 'ict-bot*' --no-pager | grep -E 'ict-bot@|Active'
 tail -f /var/log/ict-bot-trend-*.log
 ```
+
+Eight markets, not more. On a spot account the bots are long only, and
+long only, breadth stops helping at roughly eight to ten - beyond that the
+drawdown grows while the return does not, because without shorts every
+position is the same directional bet. The full table is under "Breadth" in
+the main README.
+
+All eight share `portfolio.max_open_positions: 3` through
+`state/portfolio.json`, so at most three positions are open across the
+whole set - 1.5% of the account at risk at once rather than 4%. Without
+that shared cap, eight instances at 0.5% each would size independently and
+nothing would count the total.
 
 ## Judging a paper run
 
