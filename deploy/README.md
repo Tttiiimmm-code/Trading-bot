@@ -85,24 +85,6 @@ ready-made examples ship in `config/`:
 [`config-btc-5m.example.yaml`](../config/config-btc-5m.example.yaml)
 (same market, 5m instead of 15m).
 
-A third example,
-[`config-trend-btc.example.yaml`](../config/config-trend-btc.example.yaml),
-runs the **trend-following** strategy on 4h bars instead of ICT. That is
-the one the long backtest found an edge in - see "The trend strategy,
-measured the same way" in the main README before choosing. Because the
-strategies share the same live loop, switching is a config file, not a
-different program:
-
-```bash
-cp config/config-trend-btc.example.yaml config/config-trend-btc.yaml
-systemctl enable --now ict-bot@trend-btc.service
-```
-
-Give each trend instance its own market (`config-trend-eth.yaml`,
-`config-trend-sol.yaml`, ...) - most of the measured return came from
-running several markets at once, since any single market spends long
-stretches without a breakout worth taking.
-
 ```bash
 cd /opt/ict-bot/Trading-bot
 cp config/config-ethusdt.example.yaml config/config-ethusdt.yaml
@@ -117,6 +99,37 @@ pick whatever name describes it. Repeat for any other market/timeframe
 you want to add (e.g. `config-btc-5m.yaml` -> `ict-bot@btc-5m.service`).
 Each instance is fully independent of the original `ict-bot.service` and
 of each other.
+
+### Trend-following instances
+
+[`config-trend-btc.example.yaml`](../config/config-trend-btc.example.yaml),
+[`config-trend-eth.example.yaml`](../config/config-trend-eth.example.yaml)
+and [`config-trend-sol.example.yaml`](../config/config-trend-sol.example.yaml)
+run the **trend-following** strategy on 4h bars instead of ICT. That is the
+one the long backtest found an edge in - see "The trend strategy, measured
+the same way" in the main README before choosing. Because both strategies
+share the same live loop, switching is a config file, not a different
+program.
+
+Run several markets: most of the measured return came from trading several
+at once, since any single market spends long stretches without a breakout
+worth taking - one market averaged roughly 50 trades a year.
+
+```bash
+cd /opt/ict-bot/Trading-bot
+for m in btc eth sol; do
+  cp config/config-trend-$m.example.yaml config/config-trend-$m.yaml
+  systemctl enable --now ict-bot@trend-$m.service
+done
+systemctl status 'ict-bot*' --no-pager | grep -E 'ict-bot@|Active'
+tail -f /var/log/ict-bot-trend-*.log
+```
+
+The instances stay independent: each tracks its own risk and its own
+simulated balance. So three markets at 0.5% risk each can put 1.5% of a
+real account at risk simultaneously, and in paper mode the three balances
+are three separate 10k accounts, not one portfolio - don't add the
+returns together and read them as a portfolio result.
 
 Stopping one instance:
 ```bash
