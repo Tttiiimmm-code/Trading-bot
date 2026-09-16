@@ -2,8 +2,9 @@ import pandas as pd
 
 from ict_bot.backtest.engine import BacktestConfig, BacktestEngine
 from ict_bot.backtest.metrics import compute_metrics, pair_trades
-from ict_bot.strategy.ict_strategy import ICTStrategy, ICTStrategyConfig
+from ict_bot.strategy.ict_strategy import ICTStrategy, ICTStrategyConfig, Side, Signal
 from ict_bot.strategy.risk import RiskConfig, RiskManager
+from tests.conftest import rows_to_df
 from tests.test_ict_strategy import _long_setup_df
 
 
@@ -56,3 +57,41 @@ def test_backtest_on_flat_data_takes_no_trades():
 
     assert result.fills == []
     assert result.final_balance == 10_000
+
+
+class _OneShotStrategy:
+    """Emits an unfillable signal on every call and records when it was
+    asked. The engine only asks while no order is pending, so the gap
+    between calls is how long a pending order survived."""
+
+    def __init__(self):
+        self.called_at: list[int] = []
+
+    def generate_signal(self, df, trace=None, correlated=None):
+        self.called_at.append(len(df) - 1)
+        return Signal(index=df.index[-1], side=Side.LONG, entry=1e9,  # never touched
+                      stop_loss=1e9 - 1, take_profit=None, reason="unfillable")
+
+
+def test_a_pending_order_gets_exactly_the_configured_number_of_chances():
+    # The live loop counts down pending_order_expiry_bars and gives up at
+    # zero. The engine must agree, or the backtest measures a strategy the
+    # bot does not run.
+    rows = [(100.0, 101.0, 99.0, 100.0)] * 9
+    strategy = _OneShotStrategy()
+    engine = BacktestEngine(rows_to_df(rows), strategy, RiskManager(RiskConfig()),
+                            BacktestConfig(symbol="TEST/USD", window_size=50, pending_order_expiry_bars=2))
+    engine.run()
+
+    # Asked at bar 0; bars 1 and 2 are the two fill attempts; asked again at 2.
+    assert strategy.called_at[:3] == [0, 2, 4]
+    gaps = [b - a for a, b in zip(strategy.called_at, strategy.called_at[1:])]
+    assert all(gap == 2 for gap in gaps), strategy.called_at
+
+
+def test_expiry_of_one_bar_means_a_single_chance():
+    rows = [(100.0, 101.0, 99.0, 100.0)] * 7
+    strategy = _OneShotStrategy()
+    BacktestEngine(rows_to_df(rows), strategy, RiskManager(RiskConfig()),
+                   BacktestConfig(symbol="TEST/USD", window_size=50, pending_order_expiry_bars=1)).run()
+    assert strategy.called_at[:3] == [0, 1, 2]
