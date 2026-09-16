@@ -137,6 +137,52 @@ price data with known, verifiable structure, plus an end-to-end test that
 walks a full sweep -> CHoCH -> order block -> OTE -> signal sequence
 through the strategy and the backtest engine.
 
+## What the backtests actually show
+
+Measured over ~2 years of 15m data across 8 crypto markets (BTC, ETH, SOL,
+XRP, ADA, LINK, DOGE, AVAX), with a chronological train/test split and
+variants selected on train only:
+
+| | trades | mean result per trade | t |
+|---|---|---|---|
+| no trading costs | 719 / 372 | +0.03R / +0.01R | 0.6 / 0.2 |
+| maker 0.02%, taker 0.05%, 0.02% stop slippage | 719 / 372 | **-0.18R / -0.24R** | -3.2 / -3.1 |
+
+Read that carefully, because the two rows say different things:
+
+- **Before costs the edge is not distinguishable from zero.** +0.03R sounds
+  positive, but with a ~1.4R spread over 719 trades the 95% interval is
+  [-0.07, +0.14]. There is no evidence of an edge here, in either
+  direction.
+- **After realistic costs the loss *is* statistically significant** (t
+  ≈ -3.1, interval entirely below zero). That is not noise.
+
+The reason is structural rather than a matter of tuning. The stop sits just
+beyond the swept level, so the median risked distance is **0.308% of
+price**. Sizing that to risk 1% of the account implies **~3.2x notional
+exposure** - and fees are charged on notional while the edge is earned on
+the stop distance. A 0.06% round trip therefore costs ~0.19R per trade,
+roughly six times the entire measured edge. Breaking even would need stops
+wider than ~1.8%, which is a different strategy, not a different parameter.
+
+Things that did **not** fix it, each measured rather than assumed:
+higher-timeframe bias, session liquidity (PDH/PDL/PWH/PWL), consequent
+encroachment entries, wider/narrower sweep lookbacks, different swing
+sensitivities, and risk/reward floors from 1.5 to 3.0 - none beat the
+plain baseline on train.
+
+One change did help materially, just not enough: the original exit takes
+profit at the next liquidity pool, which sat a median **3.97R** away and
+was reached 19% of the time, while 71% of trades were up +1R at some point
+and 64% of the *losers* had been +1R before turning around. Switching to a
+fixed 2R target lifts the win rate from 19% to ~35% and per-trade
+expectancy by ~0.2R - enough to reach break-even before costs, not enough
+to clear them.
+
+None of this proves ICT "doesn't work" - it is one implementation, on
+crypto, at 15m, executed mechanically. It does mean **this** configuration
+should not be run with real money.
+
 ## Known limitations
 
 - The higher-timeframe bias filter derives its HTF candles by resampling
