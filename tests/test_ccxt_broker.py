@@ -189,3 +189,79 @@ def test_manual_close_cancels_leftover_native_orders():
     assert sl_id in exchange.cancelled
     assert tp_id in exchange.cancelled
     assert "BTC/USDT" not in broker._protective_orders
+
+
+def _bar(high: float, low: float) -> pd.Series:
+    return pd.Series({"open": low, "high": high, "low": low, "close": high})
+
+
+def _open_trailing_long(exchange, trail_distance: float = 10.0):
+    broker = CCXTBroker(exchange, quote_currency="USDT")
+    ts = pd.Timestamp("2024-01-01", tz="UTC")
+    broker.open_position("BTC/USDT", Side.LONG, 1.0, 100.0, 90.0, None, ts, trail_distance=trail_distance)
+    return broker, ts
+
+
+def test_a_trailing_position_still_gets_a_native_stop_on_the_exchange():
+    # Without this the position sits completely unprotected between polls -
+    # and with 4h bars that is four hours of exposure per poll.
+    exchange = FakeExchange({"USDT": {"free": 10_000.0}}, order_price=100.0)
+    broker, _ = _open_trailing_long(exchange)
+
+    sl_id, tp_id = broker._protective_orders["BTC/USDT"]
+    assert tp_id is None  # open-ended exit: stop only
+    assert exchange._orders[sl_id]["params"]["stopLossPrice"] == 90.0
+
+
+def test_the_native_stop_is_moved_when_the_trail_ratchets():
+    exchange = FakeExchange({"USDT": {"free": 10_000.0}}, order_price=100.0)
+    broker, ts = _open_trailing_long(exchange)
+    old_id, _ = broker._protective_orders["BTC/USDT"]
+
+    # Price runs to 130, so a 10-wide trail drags the stop from 90 to 120.
+    assert broker.check_stop_and_target("BTC/USDT", _bar(130.0, 105.0), ts) is None
+
+    position = broker.get_open_position("BTC/USDT")
+    assert position.stop_loss == 120.0
+    new_id, _ = broker._protective_orders["BTC/USDT"]
+    assert new_id != old_id
+    assert old_id in exchange.cancelled  # the stale stop must not stay resting
+    assert exchange._orders[new_id]["params"]["stopLossPrice"] == 120.0
+
+
+def test_the_stop_is_not_re_placed_when_the_trail_does_not_move():
+    exchange = FakeExchange({"USDT": {"free": 10_000.0}}, order_price=100.0)
+    broker, ts = _open_trailing_long(exchange)
+    old_id, _ = broker._protective_orders["BTC/USDT"]
+
+    broker.check_stop_and_target("BTC/USDT", _bar(95.0, 92.0), ts)  # high 95 - 10 = 85 < 90
+
+    assert broker.get_open_position("BTC/USDT").stop_loss == 90.0
+    assert broker._protective_orders["BTC/USDT"][0] == old_id
+    assert exchange.cancelled == []
+
+
+def test_a_failed_re_placement_falls_back_to_polling_rather_than_pretending():
+    # Entry order is create #1, the initial stop #2, the replacement #3.
+    exchange = FakeExchange({"USDT": {"free": 10_000.0}}, order_price=100.0, fail_nth_create=3)
+    broker, ts = _open_trailing_long(exchange)
+
+    broker.check_stop_and_target("BTC/USDT", _bar(130.0, 105.0), ts)
+
+    assert "BTC/USDT" not in broker._protective_orders  # polling takes over
+    assert broker.get_open_position("BTC/USDT").stop_loss == 120.0
+    # And the polling path now actually closes the position on a stop-out.
+    fill = broker.check_stop_and_target("BTC/USDT", _bar(125.0, 110.0), ts)
+    assert fill is not None and fill.reason == "stop_loss"
+
+
+def test_a_filled_trailing_stop_is_reported_once():
+    exchange = FakeExchange({"USDT": {"free": 10_000.0}}, order_price=100.0)
+    broker, ts = _open_trailing_long(exchange)
+    sl_id, _ = broker._protective_orders["BTC/USDT"]
+    exchange.fill(sl_id, 90.0)
+
+    fill = broker.check_stop_and_target("BTC/USDT", _bar(95.0, 89.0), ts)
+    assert fill is not None and fill.reason == "stop_loss" and fill.price == 90.0
+    assert broker.get_open_position("BTC/USDT") is None
+    assert broker.check_stop_and_target("BTC/USDT", _bar(95.0, 89.0), ts) is None

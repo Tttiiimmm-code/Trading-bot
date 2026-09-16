@@ -12,6 +12,15 @@ market:
   timeframe: "15m"
 
 strategy:
+  # Which strategy the bot runs: "ict" or "trend".
+  #
+  # Measured over 2018-2026 on ten markets with realistic costs, "trend"
+  # is the one with an edge (+0.17R per trade, t=5.7); "ict" is not
+  # (-0.18R per trade after costs). See "What the backtests actually
+  # show" in the README before choosing. All the ict: keys below are
+  # ignored when type is "trend", and vice versa.
+  type: "ict"
+
   swing_left: 2
   swing_right: 2
   liquidity_tolerance_pct: 0.05
@@ -48,6 +57,23 @@ strategy:
   # min_risk_reward <= take_profit_r or nothing will pass the floor.
   take_profit_mode: "liquidity"
   take_profit_r: 2.0
+
+  # Settings for type: "trend" - a Donchian channel breakout with an ATR
+  # stop and an ATR trailing exit. There is no fixed take profit: winners
+  # run until the trail takes them out, which is where the edge comes
+  # from. Tested on 4h bars; the defaults below are what was measured.
+  trend:
+    entry_period: 20       # break the high/low of this many prior bars
+    exit_period: 10        # unused while a trailing stop is active
+    atr_period: 14
+    atr_stop_multiple: 2.0   # initial stop, in ATRs from entry
+    trail_atr_multiple: 3.0  # trailing stop distance, in ATRs
+    regime_period: 100     # only trade with the N-bar average; 0 disables
+    allow_long: true
+    allow_short: true      # shorts carried half the measured edge - on a
+                           # spot exchange they cannot be placed at all,
+                           # so set false unless you run futures
+    min_atr_pct: 0.0       # skip markets quieter than this, % of price
 
 risk:
   risk_per_trade_pct: 1.0

@@ -1,0 +1,55 @@
+# A trend-following instance: Donchian breakout on 4h bars with an ATR
+# trailing exit. This is the strategy the long backtest found an edge in
+# (see "The trend strategy, measured the same way" in the README).
+#
+# Copy to config/config-trend-btc.yaml on the server and start it as its
+# own systemd instance:
+#   systemctl enable --now ict-bot@trend-btc.service
+# (see deploy/README.md - "Running multiple instances").
+
+exchange:
+  id: binance
+  sandbox: true
+  # API keys are read from environment variables, NOT from this file:
+  #   EXCHANGE_API_KEY / EXCHANGE_API_SECRET (see .env.example)
+
+market:
+  symbol: "BTC/USDT"
+  timeframe: "4h"
+
+strategy:
+  type: "trend"
+  trend:
+    entry_period: 20
+    atr_period: 14
+    atr_stop_multiple: 2.0
+    trail_atr_multiple: 3.0
+    regime_period: 100
+    allow_long: true
+    # Shorts carried half the measured edge, but they cannot be placed on a
+    # spot exchange at all - a "sell" there just sells coins you hold. Only
+    # turn this on when trading futures (e.g. exchange id: binanceusdm).
+    allow_short: false
+
+risk:
+  # Half the usual size: the backtest's -35% worst drawdown was measured at
+  # 0.5% per trade across ten markets. At 1% it was roughly twice that.
+  risk_per_trade_pct: 0.5
+  max_daily_loss_pct: 3.0
+  max_open_positions: 1
+
+backtest:
+  starting_balance: 10000
+  # Real numbers, not zeros - a backtest at zero cost is not a backtest.
+  maker_fee_pct: 0.02
+  taker_fee_pct: 0.05
+  stop_slippage_pct: 0.02
+  window_size: 400        # needs to cover regime_period plus warm-up
+  pending_order_expiry_bars: 2   # 2 bars = 8 hours on this timeframe
+  history_bars: 5000
+
+live:
+  poll_interval_seconds: 30
+  use_native_sl_tp: true  # the stop rests on the exchange and is re-placed
+                          # each time the trail moves
+  status_log_interval_minutes: 240  # one 4h bar

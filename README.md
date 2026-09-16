@@ -183,6 +183,66 @@ None of this proves ICT "doesn't work" - it is one implementation, on
 crypto, at 15m, executed mechanically. It does mean **this** configuration
 should not be run with real money.
 
+### The trend strategy, measured the same way
+
+`strategy.type: "trend"` is a Donchian channel breakout with an ATR stop and
+an ATR trailing exit - no fixed target, winners run until the trail takes
+them out. Measured on **4h bars, ten markets, 2018-2026 (4,053 trades),
+with the same maker/taker/slippage costs applied**:
+
+| | trades | mean result per trade | t | 95% CI |
+|---|---|---|---|---|
+| all trades | 4,053 | **+0.169R** | 5.68 | [+0.110, +0.227] |
+| longs only | 2,169 | +0.161R | 4.00 | |
+| shorts only | 1,884 | +0.178R | 4.04 | |
+
+- **30 of 35 quarters** and **8 of 9 years** were profitable, as were
+  **10 of 10 markets**. Clustering trades by quarter (so that simultaneous
+  positions across markets are not counted as independent) still gives
+  t = 4.6.
+- Longs and shorts earn the same edge. That matters: it rules out "crypto
+  went up during the sample" as the explanation.
+- Seven parameter variants - faster and slower channels, wider stops,
+  tighter trails, no regime filter, long-only - were **all** positive
+  (t between 3.8 and 5.8). The result is not one lucky setting.
+
+The first version of this test, on the same 2 years of data used for ICT,
+looked like a failure: strongly positive on train, negative on test. That
+"test period" was two quarters long. Over 8.7 years those two quarters are
+an ordinary flat patch, and the parameters were in fact chosen on
+2024-2026, making all of 2018-2024 genuinely out-of-sample.
+
+Why costs do not kill this one, when they killed ICT:
+
+| | ICT (15m) | trend (4h) |
+|---|---|---|
+| median stop distance | 0.308% of price | **4.46% of price** |
+| notional at 1% risk | ~3.2x equity | ~0.22x equity |
+| round-trip cost in R | ~0.19R | **~0.020R** |
+| measured edge | +0.03R | +0.169R |
+| cost as share of edge | ~600% | **12%** |
+
+The stop is wide enough that fees are a rounding error instead of the whole
+result. Median holding time is 1.7 days, so on perpetual futures even
+0.02%/8h funding only takes the edge from +0.169R to +0.133R.
+
+Replayed as **one account trading all ten markets**, risking 0.5% per trade
+with at most 5 positions open:
+
+| | CAGR | max drawdown | Sharpe |
+|---|---|---|---|
+| 2018-2026 | +34.5% | -35.1% | 1.29 |
+| 2022-2026 only | +27.6% | -35.1% | 0.95 |
+
+Worst year -8.6%, best +96.5%. Note the drawdown: a -35% trough is the
+price of that return, and doubling the risk per trade roughly doubles both.
+
+Caveats that no amount of backtesting removes: the ten markets all still
+exist today, so there is a survivorship tilt (smaller than usual here,
+because shorts profit from coins that collapse); shorts need futures, since
+spot cannot be sold short; and the fill model still assumes a limit order
+fills the moment price touches it.
+
 ## Known limitations
 
 - The higher-timeframe bias filter derives its HTF candles by resampling

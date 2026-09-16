@@ -56,3 +56,44 @@ def test_unknown_kill_zone_preset_is_rejected_with_a_useful_message(tmp_path):
         """)
     with pytest.raises(ValueError, match="unknown kill_zone_preset"):
         load_config(path, env_path=str(tmp_path / "missing.env"))
+
+
+def test_defaults_to_the_ict_strategy(tmp_path):
+    from ict_bot.config import build_strategy
+    from ict_bot.strategy.ict_strategy import ICTStrategy
+
+    config = load_config(_write(tmp_path), env_path=str(tmp_path / "missing.env"))
+    assert config.strategy_type == "ict"
+    assert isinstance(build_strategy(config), ICTStrategy)
+
+
+def test_selects_the_trend_strategy_and_its_options(tmp_path):
+    from ict_bot.config import build_strategy
+    from ict_bot.strategy.trend_strategy import TrendStrategy
+
+    config = load_config(_write(tmp_path, """
+        strategy:
+          type: "trend"
+          trend:
+            entry_period: 55
+            atr_stop_multiple: 3.0
+            allow_short: false
+    """), env_path=str(tmp_path / "missing.env"))
+
+    assert config.strategy_type == "trend"
+    assert config.trend.entry_period == 55
+    assert config.trend.atr_stop_multiple == 3.0
+    assert config.trend.allow_short is False
+    assert config.trend.trail_atr_multiple == 3.0  # untouched default
+    strategy = build_strategy(config)
+    assert isinstance(strategy, TrendStrategy)
+    assert strategy.config.entry_period == 55
+
+
+def test_an_unknown_strategy_type_is_rejected(tmp_path):
+    path = _write(tmp_path, """
+        strategy:
+          type: "wyckoff"
+    """)
+    with pytest.raises(ValueError, match="unknown strategy type"):
+        load_config(path, env_path=str(tmp_path / "missing.env"))

@@ -18,12 +18,12 @@ import pandas as pd
 
 from ict_bot.backtest.engine import BacktestEngine, BacktestConfig as EngineBacktestConfig
 from ict_bot.backtest.metrics import compute_metrics, pair_trades
-from ict_bot.config import AppConfig, load_config
+from ict_bot.config import AppConfig, build_strategy, load_config
 from ict_bot.data.feed import fetch_ohlcv_closed, fetch_ohlcv_history, load_ohlcv_csv, make_exchange
 from ict_bot.execution.broker import Broker
 from ict_bot.execution.ccxt_broker import CCXTBroker, quote_currency_from_symbol
 from ict_bot.execution.paper import PaperBroker
-from ict_bot.strategy.ict_strategy import ICTStrategy, Signal
+from ict_bot.strategy.ict_strategy import Signal
 from ict_bot.strategy.risk import RiskManager
 from ict_bot.utils.logger import setup_logger
 
@@ -32,7 +32,7 @@ logger = setup_logger()
 
 def cmd_backtest(args: argparse.Namespace) -> None:
     config = load_config(args.config)
-    strategy = ICTStrategy(config.strategy)
+    strategy = build_strategy(config)
     risk_manager = RiskManager(config.risk)
 
     if args.csv:
@@ -77,7 +77,7 @@ def cmd_backtest(args: argparse.Namespace) -> None:
 
 def cmd_live(args: argparse.Namespace) -> None:
     config: AppConfig = load_config(args.config)
-    strategy = ICTStrategy(config.strategy)
+    strategy = build_strategy(config)
     risk_manager = RiskManager(config.risk)
     symbol = config.market.symbol
     timeframe = config.market.timeframe
@@ -103,7 +103,8 @@ def cmd_live(args: argparse.Namespace) -> None:
     last_status_log: pd.Timestamp | None = None
     status_interval = pd.Timedelta(minutes=config.live.status_log_interval_minutes)
 
-    logger.info("Starting live loop (%s) on %s %s. Ctrl+C to stop.", args.mode, symbol, timeframe)
+    logger.info("Starting live loop (%s) on %s %s using the %s strategy. Ctrl+C to stop.",
+                args.mode, symbol, timeframe, config.strategy_type)
     while True:
         try:
             latest = fetch_ohlcv_closed(exchange, symbol, timeframe, limit=2)

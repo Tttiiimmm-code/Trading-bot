@@ -4,6 +4,10 @@ unified ``stopLossPrice``/``takeProfitPrice`` params where the exchange
 supports them; otherwise stop/target must be enforced by polling
 (:meth:`check_stop_and_target`), same as the paper broker.
 
+A trailing stop gets a native order too, cancelled and re-placed each time
+the trail ratchets. Managing it by polling alone would leave the position
+unprotected between polls - on a 4h timeframe, four hours at a time.
+
 Exchange behaviour for conditional orders varies a lot - always validate
 against the target exchange's testnet before risking real funds, and read
 the ccxt docs for that specific exchange.
@@ -62,12 +66,7 @@ class CCXTBroker(Broker):
         order = self.exchange.create_order(symbol, type="market", side=ccxt_side, amount=amount)
         fill_price = float(order.get("average") or order.get("price") or price)
 
-        if self.use_native_sl_tp and trail_distance is not None:
-            # A resting exchange-side stop never moves, so a trailing exit
-            # would silently behave differently live than in the backtest.
-            # Manage it by polling instead.
-            logger.info("Trailing stop requested for %s; managing it by polling rather than a native order.", symbol)
-        elif self.use_native_sl_tp:
+        if self.use_native_sl_tp:
             try:
                 self._protective_orders[symbol] = self._place_protective_orders(symbol, side, amount, stop_loss, take_profit)
             except Exception:  # pragma: no cover - exchange/network dependent
@@ -108,6 +107,50 @@ class CCXTBroker(Broker):
                 self.exchange.cancel_order(order_id, symbol)
             except Exception:  # pragma: no cover - exchange/network dependent
                 logger.exception("Failed to cancel leftover protective order %s for %s", order_id, symbol)
+
+    def _move_native_stop(self, symbol: str, position: Position) -> None:
+        """Re-place the resting exchange-side stop at the trailed level.
+
+        A resting stop order never moves by itself, so a trailing exit has
+        to cancel and re-place it. Order matters: cancel first, because two
+        live stop orders for one position can both trigger. If the
+        replacement fails, drop the native tracking so the polling fallback
+        takes over rather than leaving the position unprotected *and*
+        believed to be protected.
+        """
+        order_ids = self._protective_orders.get(symbol)
+        if order_ids is None:
+            return
+        sl_id, tp_id = order_ids
+        try:
+            self.exchange.cancel_order(sl_id, symbol)
+        except Exception:  # pragma: no cover - exchange/network dependent
+            logger.exception("Failed to cancel stop order %s for %s while trailing; leaving it in place", sl_id, symbol)
+            return
+        close_side = "sell" if position.side == Side.LONG else "buy"
+        try:
+            order = self.exchange.create_order(symbol, type="market", side=close_side, amount=position.amount,
+                                               params={"stopLossPrice": position.stop_loss, "reduceOnly": True})
+        except Exception:  # pragma: no cover - exchange/network dependent
+            self._protective_orders.pop(symbol, None)
+            logger.exception("Failed to re-place the trailing stop for %s at %.8f; falling back to polling",
+                             symbol, position.stop_loss)
+            return
+        self._protective_orders[symbol] = (order["id"], tp_id)
+        logger.info("Trailed the %s stop to %.8f (order %s)", symbol, position.stop_loss, order["id"])
+
+    def _trail(self, position: Position, bar: pd.Series) -> bool:
+        """Ratchet the stop along with the bar. Returns True if it moved."""
+        if position.trail_distance is None:
+            return False
+        if position.side == Side.LONG:
+            new_stop = max(position.stop_loss, float(bar["high"]) - position.trail_distance)
+        else:
+            new_stop = min(position.stop_loss, float(bar["low"]) + position.trail_distance)
+        if new_stop == position.stop_loss:
+            return False
+        position.stop_loss = new_stop
+        return True
 
     def close_position(self, symbol: str, price: float, ts: pd.Timestamp, reason: str = "manual_close") -> Fill | None:
         position = self._positions.pop(symbol, None)
@@ -169,7 +212,12 @@ class CCXTBroker(Broker):
         if native_fill is not None:
             return native_fill
         if symbol in self._protective_orders:
-            return None  # native orders still resting, unfilled - nothing to do yet
+            # Native orders are still resting and unfilled, so the exchange
+            # handles the exit - but a trailing stop has to be dragged along
+            # by hand, since a resting order stays where it was placed.
+            if self._trail(position, bar):
+                self._move_native_stop(symbol, position)
+            return None
 
         if position.side == Side.LONG:
             if bar["low"] <= position.stop_loss:
@@ -184,9 +232,5 @@ class CCXTBroker(Broker):
 
         # Same ordering rule as the paper broker: this bar is judged against
         # the stop it opened with, and only then drags the stop along.
-        if position.trail_distance is not None:
-            if position.side == Side.LONG:
-                position.stop_loss = max(position.stop_loss, float(bar["high"]) - position.trail_distance)
-            else:
-                position.stop_loss = min(position.stop_loss, float(bar["low"]) + position.trail_distance)
+        self._trail(position, bar)
         return None
