@@ -39,11 +39,12 @@ class PaperBroker(Broker):
         self._positions: dict[str, Position] = {}
         self.fills: list[Fill] = []
 
-    def _charge_fee(self, amount: float, price: float, maker: bool) -> None:
+    def _charge_fee(self, amount: float, price: float, maker: bool) -> float:
         rate = self.maker_fee_pct if maker else self.taker_fee_pct
         fee = abs(amount * price) * rate / 100.0
         self.balance -= fee
         self.fees_paid += fee
+        return fee
 
     def get_balance(self) -> float:
         return self.balance
@@ -57,8 +58,8 @@ class PaperBroker(Broker):
         position = Position(symbol=symbol, side=side, amount=amount, entry_price=price, stop_loss=stop_loss, take_profit=take_profit, opened_at=ts)
         self._positions[symbol] = position
         # The entry rests as a limit order in the order block, so it makes.
-        self._charge_fee(amount, price, maker=True)
-        self.fills.append(Fill(symbol, side, amount, price, ts, reason="entry"))
+        fee = self._charge_fee(amount, price, maker=True)
+        self.fills.append(Fill(symbol, side, amount, price, ts, reason="entry", fee=fee))
         return position
 
     def close_position(self, symbol: str, price: float, ts: pd.Timestamp, reason: str = "manual_close") -> Fill | None:
@@ -72,8 +73,8 @@ class PaperBroker(Broker):
         pnl = self._pnl(position, price)
         self.balance += pnl
         # Only a stop-out crosses the spread; a take-profit is a resting limit.
-        self._charge_fee(position.amount, price, maker=(reason == "take_profit"))
-        fill = Fill(symbol, position.side, position.amount, price, ts, reason=reason)
+        fee = self._charge_fee(position.amount, price, maker=(reason == "take_profit"))
+        fill = Fill(symbol, position.side, position.amount, price, ts, reason=reason, fee=fee)
         self.fills.append(fill)
         return fill
 

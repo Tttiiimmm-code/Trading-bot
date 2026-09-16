@@ -25,7 +25,12 @@ class Trade:
     opened_at: pd.Timestamp
     closed_at: pd.Timestamp
     exit_reason: str
-    pnl: float
+    pnl: float  # net of commissions - what the balance actually changed by
+    fees: float = 0.0  # commission paid across both fills
+
+    @property
+    def gross_pnl(self) -> float:
+        return self.pnl + self.fees
 
 
 def pair_trades(fills: list[Fill]) -> list[Trade]:
@@ -39,9 +44,13 @@ def pair_trades(fills: list[Fill]) -> list[Trade]:
         if open_fill is None:
             continue
         if open_fill.side == Side.LONG:
-            pnl = (fill.price - open_fill.price) * open_fill.amount
+            gross = (fill.price - open_fill.price) * open_fill.amount
         else:
-            pnl = (open_fill.price - fill.price) * open_fill.amount
+            gross = (open_fill.price - fill.price) * open_fill.amount
+        # Net of commissions: with stops this tight the fee is a meaningful
+        # fraction of the amount risked, so a gross win rate / profit factor
+        # would flatter the strategy against the balance it actually leaves.
+        fees = open_fill.fee + fill.fee
         trades.append(
             Trade(
                 symbol=open_fill.symbol,
@@ -52,7 +61,8 @@ def pair_trades(fills: list[Fill]) -> list[Trade]:
                 opened_at=open_fill.timestamp,
                 closed_at=fill.timestamp,
                 exit_reason=fill.reason,
-                pnl=pnl,
+                pnl=gross - fees,
+                fees=fees,
             )
         )
     return trades

@@ -31,6 +31,7 @@ class Fill:
     price: float
     timestamp: pd.Timestamp
     reason: str = "entry"  # entry | stop_loss | take_profit | manual_close
+    fee: float = 0.0  # commission charged for this fill, in quote currency
 
 
 class Broker(abc.ABC):

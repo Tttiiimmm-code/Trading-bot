@@ -1,12 +1,37 @@
 import pandas as pd
+import pytest
 
 from ict_bot.backtest.metrics import compute_metrics, max_drawdown_pct, pair_trades
 from ict_bot.execution.broker import Fill
 from ict_bot.strategy.ict_strategy import Side
 
 
-def _fill(symbol, side, amount, price, ts, reason="entry"):
-    return Fill(symbol=symbol, side=side, amount=amount, price=price, timestamp=pd.Timestamp(ts, tz="UTC"), reason=reason)
+def _fill(symbol, side, amount, price, ts, reason="entry", fee=0.0):
+    return Fill(symbol=symbol, side=side, amount=amount, price=price,
+                timestamp=pd.Timestamp(ts, tz="UTC"), reason=reason, fee=fee)
+
+
+def test_pair_trades_reports_pnl_net_of_fees():
+    fills = [
+        _fill("BTC/USDT", Side.LONG, 1.0, 100.0, "2024-01-01 00:00", fee=0.5),
+        _fill("BTC/USDT", Side.LONG, 1.0, 110.0, "2024-01-01 01:00", reason="take_profit", fee=0.6),
+    ]
+    trade = pair_trades(fills)[0]
+    assert trade.gross_pnl == 10.0
+    assert trade.fees == 1.1
+    assert trade.pnl == pytest.approx(8.9)
+
+
+def test_fees_can_flip_a_marginal_winner_into_a_loser():
+    fills = [
+        _fill("BTC/USDT", Side.LONG, 10.0, 100.0, "2024-01-01 00:00", fee=0.5),
+        _fill("BTC/USDT", Side.LONG, 10.0, 100.05, "2024-01-01 01:00", reason="take_profit", fee=0.5),
+    ]
+    trade = pair_trades(fills)[0]
+    assert trade.gross_pnl == pytest.approx(0.5)  # +0.05 x 10 units
+    assert trade.pnl == pytest.approx(-0.5)  # ... entirely eaten by 1.0 of fees
+    metrics = compute_metrics([trade], pd.Series([10_000.0, 9_999.5]), starting_balance=10_000.0)
+    assert metrics["win_rate_pct"] == 0.0
 
 
 def test_pair_trades_computes_pnl_for_long_and_short():
