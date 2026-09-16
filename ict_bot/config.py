@@ -78,6 +78,69 @@ def build_strategy(config: AppConfig):
     return ICTStrategy(config.strategy)
 
 
+def _validate(config: AppConfig) -> None:
+    """Catch settings that would leave the bot silently unable to trade.
+
+    A typo in a YAML file is otherwise only visible as a bot that never
+    takes a trade - which looks exactly like a quiet market. Every message
+    here says what is wrong and what the number needs to be, because the
+    person reading it is looking at a config file, not at this source.
+    """
+    problems: list[str] = []
+
+    if not 0 < config.risk.risk_per_trade_pct <= 10:
+        problems.append(
+            f"risk.risk_per_trade_pct is {config.risk.risk_per_trade_pct}; usual values are 0.5 to 2, "
+            f"and it must be above 0 or no position can ever be sized")
+    if config.risk.max_open_positions < 1:
+        problems.append(f"risk.max_open_positions is {config.risk.max_open_positions}; it must be at least 1")
+    if config.risk.max_daily_loss_pct <= 0:
+        problems.append(f"risk.max_daily_loss_pct is {config.risk.max_daily_loss_pct}; "
+                        f"use a large number such as 100 to disable it, not 0")
+    for name, value in (("maker_fee_pct", config.backtest.maker_fee_pct),
+                        ("taker_fee_pct", config.backtest.taker_fee_pct),
+                        ("stop_slippage_pct", config.backtest.stop_slippage_pct)):
+        if value < 0:
+            problems.append(f"backtest.{name} is {value}; a negative cost would pay you to trade")
+    if config.live.poll_interval_seconds < 1:
+        problems.append(f"live.poll_interval_seconds is {config.live.poll_interval_seconds}; it must be at least 1")
+
+    if config.strategy_type == "trend":
+        t = config.trend
+        for name, value in (("entry_period", t.entry_period), ("atr_period", t.atr_period)):
+            if value < 2:
+                problems.append(f"strategy.trend.{name} is {value}; it must be at least 2")
+        if t.atr_stop_multiple <= 0:
+            problems.append(f"strategy.trend.atr_stop_multiple is {t.atr_stop_multiple}; it must be above 0 "
+                            f"or the stop would sit on the entry price")
+        if t.trail_atr_multiple <= 0:
+            problems.append(f"strategy.trend.trail_atr_multiple is {t.trail_atr_multiple}; it must be above 0")
+        if not (t.allow_long or t.allow_short):
+            problems.append("strategy.trend.allow_long and allow_short are both false; the bot could never trade")
+        # The strategy refuses to act until the window holds every
+        # indicator's full lookback. Too small a window is invisible except
+        # as a status line nobody reads for weeks.
+        needed = max(t.entry_period, t.exit_period, t.atr_period, t.regime_period) + 2
+        if config.backtest.window_size < needed:
+            problems.append(
+                f"backtest.window_size is {config.backtest.window_size}, but the trend settings need at least "
+                f"{needed} bars (the longest lookback is {needed - 2}). The bot would never trade and would only "
+                f"log 'not enough bar history'")
+    else:
+        if config.strategy.min_risk_reward <= 0:
+            problems.append(f"strategy.min_risk_reward is {config.strategy.min_risk_reward}; it must be above 0")
+        if config.strategy.take_profit_mode in ("fixed_r", "capped") and \
+                config.strategy.take_profit_r < config.strategy.min_risk_reward:
+            problems.append(
+                f"strategy.take_profit_r ({config.strategy.take_profit_r}) is below strategy.min_risk_reward "
+                f"({config.strategy.min_risk_reward}); with take_profit_mode "
+                f"'{config.strategy.take_profit_mode}' the target caps the reward, so no signal could ever "
+                f"clear the floor")
+
+    if problems:
+        raise ValueError("config problems:\n  - " + "\n  - ".join(problems))
+
+
 def _kill_zones(preset: str) -> list:
     try:
         return KILL_ZONE_PRESETS[preset]
@@ -175,5 +238,7 @@ def load_config(path: str = "config/config.yaml", env_path: str = ".env") -> App
         trade_log=l.get("trade_log", f"state/{stem}-trades.csv"),
     )
 
-    return AppConfig(exchange=exchange, market=market, strategy=strategy, trend=trend, risk=risk,
-                     backtest=backtest, live=live, strategy_type=strategy_type)
+    config = AppConfig(exchange=exchange, market=market, strategy=strategy, trend=trend, risk=risk,
+                       backtest=backtest, live=live, strategy_type=strategy_type)
+    _validate(config)
+    return config

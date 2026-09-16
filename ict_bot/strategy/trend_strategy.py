@@ -89,8 +89,14 @@ class TrendStrategy:
         broke_up = price > channel_high
         broke_down = price < channel_low
         if not broke_up and not broke_down:
+            # Say how far away a signal is, not just that there isn't one.
+            # "inside the channel" is true for weeks at a time and reads the
+            # same whether the market is one tick or ten percent away.
+            up_pct = (channel_high - price) / price * 100
+            down_pct = (price - channel_low) / price * 100
             note(f"no breakout: close {price:.4f} inside the {cfg.entry_period}-bar channel "
-                 f"[{channel_low:.4f}, {channel_high:.4f}]")
+                 f"[{channel_low:.4f}, {channel_high:.4f}] - needs +{up_pct:.2f}% to break up "
+                 f"or -{down_pct:.2f}% to break down")
             return None
 
         side = Side.LONG if broke_up else Side.SHORT

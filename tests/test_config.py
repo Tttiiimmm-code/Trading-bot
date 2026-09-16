@@ -97,3 +97,78 @@ def test_an_unknown_strategy_type_is_rejected(tmp_path):
     """)
     with pytest.raises(ValueError, match="unknown strategy type"):
         load_config(path, env_path=str(tmp_path / "missing.env"))
+
+
+def test_an_unusable_window_size_is_caught_at_load_time(tmp_path):
+    # Without this the bot starts happily and simply never trades, logging
+    # "not enough bar history" into a file nobody reads for a fortnight.
+    path = _write(tmp_path, """
+        strategy:
+          type: "trend"
+          trend:
+            regime_period: 500
+        backtest:
+          window_size: 300
+    """)
+    with pytest.raises(ValueError, match="window_size is 300"):
+        load_config(path, env_path=str(tmp_path / "missing.env"))
+
+
+def test_both_directions_disabled_is_caught(tmp_path):
+    path = _write(tmp_path, """
+        strategy:
+          type: "trend"
+          trend:
+            allow_long: false
+            allow_short: false
+    """)
+    with pytest.raises(ValueError, match="could never trade"):
+        load_config(path, env_path=str(tmp_path / "missing.env"))
+
+
+def test_an_impossible_risk_percentage_is_caught(tmp_path):
+    path = _write(tmp_path, """
+        risk:
+          risk_per_trade_pct: 0
+    """)
+    with pytest.raises(ValueError, match="risk_per_trade_pct is 0"):
+        load_config(path, env_path=str(tmp_path / "missing.env"))
+
+
+def test_a_target_below_the_risk_reward_floor_is_caught(tmp_path):
+    # take_profit_mode "fixed_r" caps the reward, so a target below the
+    # floor means no signal can ever pass - a silent no-trade bot.
+    path = _write(tmp_path, """
+        strategy:
+          min_risk_reward: 3.0
+          take_profit_mode: "fixed_r"
+          take_profit_r: 2.0
+    """)
+    with pytest.raises(ValueError, match="below strategy.min_risk_reward"):
+        load_config(path, env_path=str(tmp_path / "missing.env"))
+
+
+def test_every_problem_is_reported_at_once(tmp_path):
+    # One error per run would mean fixing a config file by trial and error.
+    path = _write(tmp_path, """
+        risk:
+          risk_per_trade_pct: 0
+          max_open_positions: 0
+        live:
+          poll_interval_seconds: 0
+    """)
+    with pytest.raises(ValueError) as excinfo:
+        load_config(path, env_path=str(tmp_path / "missing.env"))
+    message = str(excinfo.value)
+    assert "risk_per_trade_pct" in message
+    assert "max_open_positions" in message
+    assert "poll_interval_seconds" in message
+
+
+def test_negative_costs_are_refused(tmp_path):
+    path = _write(tmp_path, """
+        backtest:
+          taker_fee_pct: -0.05
+    """)
+    with pytest.raises(ValueError, match="pay you to trade"):
+        load_config(path, env_path=str(tmp_path / "missing.env"))
