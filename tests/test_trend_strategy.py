@@ -106,3 +106,12 @@ def test_runs_through_the_backtest_engine_unchanged():
     result = engine.run()
     assert len(result.equity_curve) == len(df)
     assert any(f.reason == "entry" for f in result.fills)
+
+
+def test_the_no_breakout_message_says_how_far_away_a_signal_is():
+    # "inside the channel" stays true for weeks and reads identically
+    # whether the market is one tick or ten percent from a signal.
+    trace: list[str] = []
+    TrendStrategy(TrendStrategyConfig(**CFG)).generate_signal(rows_to_df(_flat(25)), trace=trace)
+    assert "needs +1.00% to break up" in trace[0]
+    assert "-1.00% to break down" in trace[0]
