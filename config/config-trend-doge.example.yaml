@@ -1,0 +1,127 @@
+# A trend-following instance: Donchian breakout on 4h bars with an ATR
+# trailing exit. This is the strategy the long backtest found an edge in
+# (see "The trend strategy, measured the same way" in the README).
+#
+# Copy to config/config-trend-doge.yaml on the server and start it as its
+# own systemd instance:
+#   systemctl enable --now ict-bot@trend-doge.service
+# (see deploy/README.md - "Running multiple instances").
+
+exchange:
+  id: binance
+  sandbox: true
+  # API keys are read from environment variables, NOT from this file:
+  #   EXCHANGE_API_KEY / EXCHANGE_API_SECRET (see .env.example)
+
+market:
+  symbol: "DOGE/USDT"
+  timeframe: "4h"
+
+strategy:
+  type: "trend"
+  trend:
+    entry_period: 20
+    atr_period: 14
+    atr_stop_multiple: 2.0
+    trail_atr_multiple: 3.0
+    regime_period: 100
+    allow_long: true
+    # Shorts carried half the measured edge, but they cannot be placed on a
+    # spot exchange at all - a "sell" there just sells coins you hold. Only
+    # turn this on when trading futures (e.g. exchange id: binanceusdm).
+    allow_short: false
+
+risk:
+  # Half the usual size: the backtest's -35% worst drawdown was measured at
+  # 0.5% per trade across ten markets. At 1% it was roughly twice that.
+  #
+  # Each instance tracks its own risk and knows nothing about the others,
+  # so exposure adds up: three markets at 0.5% each can have 1.5% of the
+  # account at risk at once. The portfolio figures in the README assumed
+  # 0.5% with at most 5 positions open - stay under that or raise the
+  # number of markets rather than the percentage.
+  risk_per_trade_pct: 0.5
+  max_daily_loss_pct: 3.0
+  max_open_positions: 1
+
+backtest:
+  starting_balance: 10000
+  # Real numbers, not zeros - a backtest at zero cost is not a backtest.
+  maker_fee_pct: 0.02
+  taker_fee_pct: 0.05
+  stop_slippage_pct: 0.02
+  # What a trailing stop ratchets against: "close" (default) or "high".
+  #
+  # "high" follows the bar extreme, which sounds tighter and makes the exit
+  # depend on single prints. Exchanges publish bad ticks - a KuCoin LTC bar
+  # in this project's data shows a high 43% above what OKX recorded for the
+  # same candle - and a false high drags the stop to a level that never
+  # traded, then books an exit there. Measured across 29 markets, that
+  # inflated the result by about a quarter; trailing on the close gives the
+  # same number whether the data is cleaned or not. See "What if the data is
+  # bad" in the README.
+  trail_on: "close"
+  # Guard against a lying feed. A wick may reach this many times the
+  # surrounding median bar range before it is treated as a misprint and
+  # clipped back; 0 accepts every print unchecked.
+  #
+  # Not hypothetical: pulling the same markets from OKX found a KuCoin LTC
+  # candle whose high was 43% above OKX's for the same period. A false high
+  # sets the breakout channel for the next entry_period bars and suppresses
+  # real signals; a false low fires a stop that never happened. Five is
+  # loose on purpose - real crashes pass, and a rule fine enough to catch
+  # every bad print is fine enough to be tuned into a desired backtest.
+  #
+  # The live loop judges each incoming bar against the window it already
+  # holds and logs every clip, so a repeating warning means the exchange
+  # feed needs looking at.
+  wick_limit: 5.0
+  window_size: 400        # needs to cover regime_period plus warm-up
+  pending_order_expiry_bars: 2   # 2 bars = 8 hours on this timeframe
+  history_bars: 5000
+
+live:
+  poll_interval_seconds: 30
+  use_native_sl_tp: true  # the stop rests on the exchange and is re-placed
+                          # each time the trail moves
+  status_log_interval_minutes: 240  # one 4h bar
+  # Restart safety. The live loop saves its state (balance, open position
+  # incl. the trailed stop level, risk counters) after every change and
+  # reloads it on start, so a restart - systemd, a reboot, a git pull -
+  # does not come back believing it is flat. Closed trades are appended to
+  # a CSV that nothing ever rewrites; score it with
+  # `python scripts/score_trades.py <that file>`.
+  # Both default to names derived from this config's filename, so
+  # instances never share them. Set to "" to disable.
+  # state_file: "state/my-instance-state.json"
+  # trade_log: "state/my-instance-trades.csv"
+  # Identifies this bot's orders on the exchange, the way a MetaTrader
+  # "magic number" does. Every order it places carries a client order id
+  # of "<bot_id>-<random>", so several bots can share one exchange account
+  # and each still recognise its own orders - in the exchange's order
+  # history and in the shared-account check the bot runs at startup, which
+  # warns when someone else has a resting order on the same symbol.
+  #
+  # Defaults to this config's filename, so instances never collide.
+  # Letters, digits, '-' and '_' only, at most 24 characters; exchanges
+  # reject anything else. Set to "" for an exchange that rejects client
+  # order ids outright.
+  # bot_id: "trend-btc"
+
+# Shared across every instance that points at the same board_file. Each
+# bot runs as its own process, so risk.max_open_positions only ever limits
+# that one bot - run a market per instance and nothing counts the total.
+# Twenty-nine bots risking 0.5% each can have 14.5% at risk at once.
+#
+# Measured over 29 markets, 2018-2026: a cap of 5 was chosen on 2018-2023
+# and then gave 42.8% CAGR at a -23.6% drawdown (Sharpe 1.54) on the
+# held-out 2024-2026 period. Higher caps earned more and gave most of it
+# back in drawdown; see "Breadth" in the README.
+portfolio:
+  max_open_positions: 3    # shared across ALL instances using this board_file
+  board_file: "state/portfolio.json"
+  # An instance that stops republishing is treated as gone after this long,
+  # so a crashed bot cannot hold a slot forever. Keep it comfortably longer
+  # than one bar of the traded timeframe.
+  stale_after_minutes: 600
+

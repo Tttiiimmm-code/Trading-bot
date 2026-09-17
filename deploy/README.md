@@ -117,7 +117,7 @@ worth taking - one market averaged roughly 50 trades a year.
 
 ```bash
 cd /opt/ict-bot/Trading-bot
-for m in btc eth ltc xrp ada link bch sol; do
+for m in btc eth sol xrp doge; do
   cp config/config-trend-$m.example.yaml config/config-trend-$m.yaml
   systemctl enable --now ict-bot@trend-$m.service
 done
@@ -125,16 +125,25 @@ systemctl status 'ict-bot*' --no-pager | grep -E 'ict-bot@|Active'
 tail -f /var/log/ict-bot-trend-*.log
 ```
 
-Eight markets, not more. On a spot account the bots are long only, and
-long only, breadth stops helping at roughly eight to ten - beyond that the
-drawdown grows while the return does not, because without shorts every
-position is the same directional bet. The full table is under "Breadth" in
-the main README.
+**Five markets, and these five.** They are the top of the liquidity
+ranking, and liquidity is the strongest relationship measured in this
+project: the correlation between a market's log dollar volume and the
+strategy's edge in it is +0.62 (t=4.10). The edge lives in the biggest,
+most efficient markets, not the neglected ones.
 
-All eight share `portfolio.max_open_positions: 3` through
+Configs also ship for LTC, ADA, LINK and BCH. They are in the thin half
+and measured worse; held out on 2024-2026, the eight-market set returned
+8.3% at a -17.0% drawdown against 15.3% at -10.3% for these five. See "The
+strongest relationship in this project" in the main README.
+
+Not more than five either: on a spot account the bots are long only, and
+without shorts every extra position is the same directional bet rather
+than a diversifying one.
+
+All of them share `portfolio.max_open_positions: 3` through
 `state/portfolio.json`, so at most three positions are open across the
-whole set - 1.5% of the account at risk at once rather than 4%. Without
-that shared cap, eight instances at 0.5% each would size independently and
+whole set - 1.5% of the account at risk at once rather than 2.5%. Without
+that shared cap, five instances at 0.5% each would size independently and
 nothing would count the total.
 
 ## Judging a paper run

@@ -858,6 +858,79 @@ from the chart alone - no headline needed. By the time the move has
 happened, the move **is** the information. Reading the news buys you
 nothing extra unless you can act before the move, and you cannot.
 
+## The strongest relationship in this project: liquidity
+
+A fair objection to all of this: other retail traders have the same
+information and mostly no bot, so surely a disciplined system beats them?
+
+The premise is half right. You are not competing with high-frequency firms
+for the same trade - they hold positions for seconds, this holds them for
+1.7 days. But beating other retail traders does not pay. Your result comes
+from the price you buy at against the price you sell at, and that price is
+set by whoever is most willing to trade there, not by the average
+participant. When retail loses, the money goes to whoever took the other
+side, which is mostly market makers.
+
+It is testable, though. If the edge came from unsophisticated
+counterparties, it should be **larger** where professionals bother less -
+thin, neglected markets - and smaller in BTC, the most watched market in
+crypto. Measured across 29 markets:
+
+| | median $ volume per bar | mean per trade |
+|---|---|---|
+| BTC | 15,957,148 | **+0.431R** |
+| ETH | 10,331,287 | +0.327R |
+| SOL | 5,045,963 | +0.232R |
+| ... | | |
+| CRV | 125,842 | -0.214R |
+| SUSHI | 42,507 | -0.123R |
+
+**Correlation between log(liquidity) and mean R: +0.62, t = 4.10.** Top
+half by liquidity averages +0.115R; bottom half +0.010R. The edge lives in
+the *most* efficient markets, not the neglected ones - the exact opposite
+of the "we out-trade the amateurs" theory.
+
+Two explanations, both pointing the same way. Thin markets have wider
+spreads and worse fills than the flat 0.09% modelled here, so their true
+results are worse than shown. And sustained trends need sustained flows,
+which small coins do not have - they move on noise.
+
+### Which changes what to run
+
+Ranking markets by liquidity **measured on train data only**, choosing the
+cutoff on 2018-2023, then looking once at 2024-2026:
+
+| universe | cap | train Sharpe | test CAGR | test drawdown | test Sharpe |
+|---|---|---|---|---|---|
+| top 3 (BTC, ETH, SOL) | 2 | **1.31** | 7.7% | **-9.7%** | 0.65 |
+| top 3 | 3 | 1.20 | 12.2% | -15.1% | 0.71 |
+| **top 5** (+ XRP, DOGE) | **3** | 1.19 | **15.3%** | **-10.3%** | **0.82** |
+| top 8 | 3 | 1.04 | 8.3% | -17.0% | 0.52 |
+| top 29 | 3 | 0.49 | 9.9% | -20.4% | 0.53 |
+
+Note the honest part: top 3 at cap 2 wins on train and is *not* the best
+on test. Picking on train never guarantees the best held-out result. But
+the ordering replicates - liquid beats thin in both halves - and that is
+what makes this different from picking past winners.
+
+**The eight-market set shipped earlier contains three thin markets (LTC,
+LINK, BCH).** Replacing them with the liquidity ranking's top five - BTC,
+ETH, SOL, XRP, DOGE - roughly doubles the held-out return and cuts the
+drawdown from -17.0% to -10.3%.
+
+Caveat worth keeping: every test-period t-statistic here is weak (1.2 to
+2.2, quarter-clustered never above 1.5). The *relationship* is solid; the
+level of return in any one period is not.
+
+### Is the edge being competed away?
+
+Also worth asking, since more systematic money arrives every year. Trend
+in quarterly mean R: **-0.0073R per quarter, t = -1.04.** Not significant.
+The first third of the history averaged +0.237R, the middle -0.051R, the
+last third +0.040R - weaker than the start, but that is the same
+observation as "2018-2021 carried the significance", not evidence of a
+steady decay.
+
 ## Known limitations
 
 - The higher-timeframe bias filter derives its HTF candles by resampling
