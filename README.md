@@ -798,6 +798,66 @@ And the limits that remain: one crypto venue for history (cross-checked on
 a second only for the last eight months), markets that still exist today,
 and holes in several series that no cleaning rule can fill in.
 
+## Trading the news, tested without news
+
+A bot that reads headlines and trades on them cannot be backtested
+honestly. A language model already knows what happened after the March
+2024 Apple release; it would score brilliantly on that and tell you
+nothing. News archives are also corrected, deduplicated and completed
+after the fact, so what you fetch today is not what was on the wire then.
+
+But the question underneath survives translation into prices. When
+something important happens, the market moves hard on heavy volume. If
+there is nothing to trade **after** that move, then knowing the news
+sooner only helps if you are faster than everyone else - which a retail
+bot parsing articles is not.
+
+Events here are a 4h bar moving more than *k* standard deviations of its
+own recent returns **on more than twice its median volume**. Entry at a
+bar's close, 2xATR stop, twelve-bar hold, the usual costs. 29 markets,
+2018-2026.
+
+| | events | WR | mean per trade | t |
+|---|---|---|---|---|
+| 3 sigma, continuation, instant | 5,990 | 41.5% | -0.009R | -0.63 |
+| 3 sigma, continuation, 4h late | 5,990 | 40.2% | -0.022R | -1.84 |
+| 3 sigma, continuation, 8h late | 5,990 | 41.1% | **-0.047R** | **-4.27** |
+| 3 sigma, reversal, instant | 5,990 | 50.7% | -0.030R | -2.69 |
+| 3 sigma, reversal, 8h late | 5,990 | 53.1% | +0.003R | 0.31 |
+
+**Nothing to trade after an ordinary large move, in either direction.**
+And the continuation column decays exactly as the speed argument predicts:
+zero if you could act instantly, significantly negative by the time an
+article about it exists.
+
+The one exception looked real. Restricting to 5-sigma events and holding
+twelve bars:
+
+| | events | mean per trade | t | quarter-clustered t |
+|---|---|---|---|---|
+| instant entry | 940 | +0.127R | 2.12 | 2.03 |
+| **4h late** | 940 | **+0.214R** | **3.65** | **2.99** |
+| 8h late | 940 | +0.174R | 3.57 | 2.21 |
+
+Being *slower* was better, which contradicts the speed story: on a
+5-sigma bar the close is an extreme, and waiting a bar gets a better
+price. So it went through the same split every parameter choice here gets:
+
+| | events | mean per trade | t | quarter-clustered t | quarters |
+|---|---|---|---|---|---|
+| train 2018-2023 | 587 | +0.280R | 3.60 | 3.18 | 16/23 |
+| **test 2024-2026** | 353 | **+0.105R** | **1.20** | **0.91** | 6/11 |
+
+The edge shrinks by 60% and loses significance. That is what one variant
+out of a dozen tried on the same data looks like when the data stops
+cooperating.
+
+**And note what the surviving question is not.** Every rule above is a
+*price* rule. If anything is there after a large move, it is capturable
+from the chart alone - no headline needed. By the time the move has
+happened, the move **is** the information. Reading the news buys you
+nothing extra unless you can act before the move, and you cannot.
+
 ## Known limitations
 
 - The higher-timeframe bias filter derives its HTF candles by resampling
