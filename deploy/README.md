@@ -140,10 +140,10 @@ Not more than five either: on a spot account the bots are long only, and
 without shorts every extra position is the same directional bet rather
 than a diversifying one.
 
-All eight share `portfolio.max_open_positions: 3` through
+All of them share `portfolio.max_open_positions: 3` through
 `state/portfolio.json`, so at most three positions are open across the
-whole set - 1.5% of the account at risk at once rather than 4%. Without
-that shared cap, eight instances at 0.5% each would size independently and
+whole set - 1.5% of the account at risk at once rather than 2.5%. Without
+that shared cap, five instances at 0.5% each would size independently and
 nothing would count the total.
 
 ## Judging a paper run
