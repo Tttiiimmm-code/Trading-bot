@@ -119,3 +119,24 @@ def test_no_temp_files_are_left_behind(tmp_path):
         board.publish(f"bot-{i}", [_position("BTC/USDT")], NOW)
     names = sorted(p.name for p in tmp_path.iterdir())
     assert names == ["portfolio.json", "portfolio.json.lock"]
+
+
+def test_a_retired_instance_can_be_removed_from_the_board(tmp_path):
+    # Stopping a bot does not remove what it published: its entry claims a
+    # slot until it goes stale, and no living process will ever update it.
+    board = _board(tmp_path)
+    board.publish("trend-btc", [_position("BTC/USDT")], NOW)
+    board.publish("trend-ltc", [_position("LTC/USDT")], NOW)
+
+    board.release("trend-ltc")
+
+    assert [s.bot_id for s in board.slots(NOW)] == ["trend-btc"]
+
+
+def test_releasing_an_instance_that_is_not_on_the_board_is_harmless(tmp_path):
+    board = _board(tmp_path)
+    board.publish("trend-btc", [_position("BTC/USDT")], NOW)
+
+    board.release("trend-ltc")
+
+    assert len(board.slots(NOW)) == 1
