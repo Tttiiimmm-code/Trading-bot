@@ -117,13 +117,36 @@ worth taking - one market averaged roughly 50 trades a year.
 
 ```bash
 cd /opt/ict-bot/Trading-bot
-for m in btc eth sol xrp doge; do
-  cp config/config-trend-$m.example.yaml config/config-trend-$m.yaml
-  systemctl enable --now ict-bot@trend-$m.service
-done
-systemctl status 'ict-bot*' --no-pager | grep -E 'ict-bot@|Active'
+.venv/bin/python scripts/set_markets.py btc eth sol xrp doge
 tail -f /var/log/ict-bot-trend-*.log
 ```
+
+`set_markets.py` makes the running `trend-*` instances match that list and
+nothing else: it copies the shipped example config on first use, starts
+what is missing, stops what is no longer wanted, and shows the plan for
+confirmation before touching anything (`--dry-run` just prints it). ICT
+instances and anything else you started by hand are left alone.
+
+Changing the list later is the same command with a different list - that
+is how you would drop a market or add one back.
+
+It **refuses to stop an instance that still holds a position**, because
+that strands the trade: the position never exits, so it never reaches the
+trade journal and that market's recorded result quietly omits it (in live
+mode the position is real, and nothing trails its stop any more). Either
+wait for the position to close or, having decided to abandon it, pass
+`--force`.
+
+The hand-typed equivalent is one line per instance:
+
+```bash
+systemctl disable --now ict-bot@trend-ltc.service
+```
+
+That is the same stop without the held-position check, and without
+removing the instance from `state/portfolio.json` - where a stopped bot's
+position goes on claiming one of the three shared slots until it goes
+stale, blocking a market that is still running from opening one.
 
 **Five markets, and these five.** They are the top of the liquidity
 ranking, and liquidity is the strongest relationship measured in this

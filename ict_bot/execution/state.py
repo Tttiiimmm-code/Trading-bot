@@ -170,3 +170,25 @@ def restore_state(path: str, broker: Broker, risk_manager: RiskManager, symbol: 
     if "balance" in state:
         logger.info("Restored simulated balance %.2f (%d fills so far)", broker.balance, len(broker.fills))
     return True
+
+
+def peek_open_positions(path: str) -> list[dict[str, Any]]:
+    """What a saved state says is open, without starting a broker.
+
+    For tooling that has to decide whether stopping an instance would
+    strand a position. Deliberately forgiving: an absent, unreadable or
+    older state file reads as "nothing known", because the caller's job is
+    to warn, not to refuse.
+    """
+    try:
+        with open(path) as f:
+            state = json.load(f)
+    except FileNotFoundError:
+        return []
+    except Exception:
+        logger.warning("State file %s is unreadable; assuming it holds nothing", path)
+        return []
+    if not isinstance(state, dict):
+        return []
+    positions = state.get("positions", [])
+    return [p for p in positions if isinstance(p, dict)]

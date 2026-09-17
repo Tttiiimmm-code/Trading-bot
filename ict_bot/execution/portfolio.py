@@ -105,6 +105,28 @@ class PortfolioBoard:
             "updated_at": now.isoformat(),
             "positions": [{"symbol": p.symbol, "side": p.side.value} for p in positions],
         }
+        self._mutate(lambda board: board.__setitem__(bot_id, entry),
+                     f"publish {bot_id} to")
+
+    def release(self, bot_id: str) -> None:
+        """Remove an instance's entry entirely.
+
+        For an instance being retired on purpose. Stopping a bot does not
+        remove what it published, so a retired flat bot's entry lingers
+        until ``stale_after_minutes``, and a retired bot that held a
+        position leaves an entry no live process will ever update - a slot
+        claimed by nobody. Deleting it is only correct once that bot is
+        really gone and really flat; the caller checks both.
+        """
+        self._mutate(lambda board: board.pop(bot_id, None), f"release {bot_id} from")
+
+    def _mutate(self, change, what: str) -> None:
+        """Apply a change to the board under an exclusive lock.
+
+        The lock is a separate file so the board itself can be replaced
+        atomically underneath it - replacing a file another process holds
+        open by name would drop the lock.
+        """
         directory = os.path.dirname(os.path.abspath(self.path)) or "."
         os.makedirs(directory, exist_ok=True)
         lock_path = self.path + ".lock"
@@ -113,7 +135,7 @@ class PortfolioBoard:
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 try:
                     board = self._read()
-                    board[bot_id] = entry
+                    change(board)
                     fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
                     with os.fdopen(fd, "w") as f:
                         json.dump(board, f, indent=2)
@@ -121,4 +143,4 @@ class PortfolioBoard:
                 finally:
                     fcntl.flock(lock, fcntl.LOCK_UN)
         except Exception:  # pragma: no cover - disk full, permissions, ...
-            logger.exception("Could not publish to the portfolio board %s", self.path)
+            logger.exception("Could not %s the portfolio board %s", what, self.path)
