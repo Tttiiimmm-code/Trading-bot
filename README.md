@@ -397,6 +397,68 @@ against us straight away, which is only knowable once you are already in.
 Information that exists only at fill time is not information you can
 trade on.
 
+### The hit rate is a dial, not a score
+
+35% of trades win, which reads like something to fix. It is not a property
+of the strategy to be improved - it is a dial, and it is already where it
+should be (`scripts/eval_hit_rate.py`).
+
+A take profit raises it immediately: more trades end green because none is
+allowed to hand back an open gain. The five markets actually running, long
+only, 4h, live costs - the *same 1,047 trades* in every row, only the exit
+rule differs, so nothing is being selected and there is nothing to hold out:
+
+| exit rule | win% | mean R | total R | quarter-clustered t | equity from 10k | max DD |
+|---|---|---|---|---|---|---|
+| **trailing stop (shipped)** | **36.2%** | **+0.277** | +289.8 | 3.01 | **39,899** | -19.3% |
+| take profit at 1R | **52.2%** | +0.035 | +36.3 | 1.38 | 11,834 | -19.1% |
+| take profit at 1.5R | 42.2% | +0.084 | +88.2 | 2.03 | 15,244 | -19.8% |
+| take profit at 2R | 37.2% | +0.128 | +134.0 | 2.26 | 19,066 | -18.0% |
+| take profit at 3R | 36.2% | +0.181 | +189.7 | 2.50 | 24,955 | -17.7% |
+| take profit at 5R | 36.2% | +0.220 | +229.9 | 2.77 | 30,172 | -19.9% |
+
+The dial runs cleanly in one direction: every point of win rate is bought
+with expectancy. A 1R target lifts the hit rate by 16 points and destroys
+**87% of the profit**.
+
+The usual defence of a tight target is that it buys a smoother ride. It
+does not. **Max drawdown is ~19% in every single row**, including the one
+that ends with a quarter of the money. Capping winners shortens the gains
+and leaves the losses exactly as they were, so the trough is the same and
+there is less above it.
+
+Why it is that brutal:
+
+```
+top  5% of trades carry 124% of gross profit ( 52 trades)
+top 10% of trades carry 185% of gross profit (104 trades)
+top 25% of trades carry 267% of gross profit (261 trades)
+
+biggest single winner  +23.0R        median trade  -0.74R
+```
+
+Over 100% means the other 95% of trades lose money *in aggregate*. The
+whole result is 52 trades. A 2R cap turns the +23R trade into +2R, and no
+improvement in win rate makes that back - which is what the table shows.
+
+The take-profit rows are also flattered on purpose: a target counts as
+filled whenever a bar's high reached it, even when that same bar also
+touched the stop. They lose anyway, so the conclusion does not depend on
+the fill assumption.
+
+(The +0.277R baseline here is higher than the +0.169R headline because
+this is the five liquid markets long-only, not all ten with shorts. The
+comparison is within the column, not against the headline.)
+
+The honest way to raise the hit rate is to take *better* trades, not to
+cut winners short - and that is the thing nothing tested here managed to
+do. Seven parameter variants all landed within 0.02R of each other; the
+one entry filter tested in detail removed the profitable trades (above).
+When the win rate is a dial and trade selection will not move, the
+remaining lever is how many uncorrelated markets you run - which is what
+"Breadth" and "liquidity" are about, and why they are the two sections
+with real findings in them.
+
 ### Intermarket divergence
 
 Ported from a friend's Gold/Silver MT5 bot: two markets that normally move
